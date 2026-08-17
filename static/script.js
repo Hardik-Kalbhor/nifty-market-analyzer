@@ -249,7 +249,8 @@ function renderPredictionHero(data) {
     predValue.textContent = pred;
 
     const sentimentEmoji = { BULLISH: "🟢", BEARISH: "🔴", MIXED: "🟡" };
-    predSentiment.textContent = `${sentimentEmoji[data.news_sentiment] || "⚪"} Sentiment: ${data.news_sentiment}`;
+    const agentBadge = data.ai_agent_provider ? ` • 🤖 ${data.ai_agent_provider}` : "";
+    predSentiment.textContent = `${sentimentEmoji[data.news_sentiment] || "⚪"} Sentiment: ${data.news_sentiment}${agentBadge}`;
 
     // Confidence gauge
     animateGauge(conf, "gauge-fill", "gauge-number");
@@ -924,15 +925,22 @@ function impactIcon(impact) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function renderError(message) {
+    const isQuota = message.toLowerCase().includes("quota") || message.toLowerCase().includes("rate limit") || message.toLowerCase().includes("try again in");
+    const title = isQuota ? "⏳ Gemini AI Quota Refreshing" : "⚠️ Analysis Failed";
+    const subtext = isQuota
+        ? "Google Gemini API free tier rate limit reached. Your quota refreshes automatically — please wait the indicated seconds and click Re-Analyse."
+        : "Please check your internet connection and try again.";
+
     errorContainer.innerHTML = `
-        <div class="card error-card animate-in">
-            <div class="error-card__title">⚠️ Analysis Failed</div>
-            <div class="error-card__message">${escapeHtml(message)}</div>
+        <div class="card error-card animate-in" style="${isQuota ? 'border-color: #f59e0b; background: rgba(245, 158, 11, 0.08);' : ''}">
+            <div class="error-card__title" style="${isQuota ? 'color: #f59e0b;' : ''}">${title}</div>
+            <div class="error-card__message" style="font-size: 0.95rem; line-height: 1.5;">${escapeHtml(message)}</div>
             <div style="margin-top: 16px; color: var(--text-muted); font-size: 0.82rem;">
-                Please check your internet connection and try again.
+                ${subtext}
             </div>
         </div>
     `;
+    errorContainer.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

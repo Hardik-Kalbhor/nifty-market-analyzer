@@ -15,7 +15,7 @@ from analyzer import analyze_news
 from intraday_analyzer import generate_intraday_prediction
 from fii_dii_scraper import fetch_fii_dii_data
 from market_signals_scraper import fetch_all_market_signals
-from llm_analyzer import analyze_with_ai_agents
+from llm_analyzer import analyze_with_ai_agents, GeminiQuotaError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,42 +60,34 @@ def analyze():
         fii_dii_data = fetch_fii_dii_data()
         market_signals = fetch_all_market_signals()
 
-        # Phase 3: Try AI Agent Analysis (Gemini / Grok), fallback to rule-based
-        logger.info("Phase 3: Running sentiment & signal analysis (BTST)...")
+        # Phase 3: Strict Google Gemini AI Agent Analysis (No rule-based fallback)
+        logger.info("Phase 3: Running Gemini AI Agent analysis (BTST)...")
         ai_result = analyze_with_ai_agents(news_items, market_signals)
         
-        if ai_result:
-            result = analyze_news(
-                news_items=news_items,
-                gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
-                india_vix=market_signals.get("india_vix"),
-                india_vix_change_pct=market_signals.get("india_vix_change_pct"),
-                pcr=market_signals.get("pcr"),
-                global_market_changes=market_signals.get("global_market_changes"),
-            )
-            # Overlay AI Agent prediction and reasoning
-            result["prediction"] = ai_result.get("prediction", result["prediction"])
-            result["confidence"] = ai_result.get("confidence", result["confidence"])
-            result["btst_bias"] = ai_result.get("btst_bias", result["btst_bias"])
-            result["news_sentiment"] = ai_result.get("news_sentiment", result["news_sentiment"])
-            result["ai_agent_provider"] = ai_result.get("ai_agent_provider")
-            result["ai_reasoning"] = ai_result.get("reasoning")
-            result["nifty_heavyweight_impact"] = ai_result.get("nifty_heavyweight_impact")
-            if ai_result.get("bullish_factors"):
-                result["bullish_factors"] = ai_result["bullish_factors"]
-            if ai_result.get("bearish_factors"):
-                result["bearish_factors"] = ai_result["bearish_factors"]
-        else:
-            result = analyze_news(
-                news_items=news_items,
-                gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
-                india_vix=market_signals.get("india_vix"),
-                india_vix_change_pct=market_signals.get("india_vix_change_pct"),
-                pcr=market_signals.get("pcr"),
-                global_market_changes=market_signals.get("global_market_changes"),
-            )
+        result = analyze_news(
+            news_items=news_items,
+            gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
+            india_vix=market_signals.get("india_vix"),
+            india_vix_change_pct=market_signals.get("india_vix_change_pct"),
+            pcr=market_signals.get("pcr"),
+            global_market_changes=market_signals.get("global_market_changes"),
+        )
+        
+        # Directly override with Gemini AI Agent predictions & reasonings
+        result["prediction"] = ai_result.get("prediction", result["prediction"])
+        result["confidence"] = ai_result.get("confidence", result["confidence"])
+        result["btst_bias"] = ai_result.get("btst_bias", result["btst_bias"])
+        result["news_sentiment"] = ai_result.get("news_sentiment", result["news_sentiment"])
+        result["ai_agent_provider"] = ai_result.get("ai_agent_provider", "Google Gemini")
+        result["final_summary"] = ai_result.get("reasoning", result["final_summary"])
+        result["nifty_heavyweight_impact"] = ai_result.get("nifty_heavyweight_impact", "")
+        if ai_result.get("bullish_factors"):
+            result["bullish_factors"] = ai_result["bullish_factors"]
+        if ai_result.get("bearish_factors"):
+            result["bearish_factors"] = ai_result["bearish_factors"]
+
         logger.info(
-            f"BTST Analysis — Prediction: {result['prediction']}, "
+            f"BTST Analysis (Gemini AI Agent) — Prediction: {result['prediction']}, "
             f"Confidence: {result['confidence']}%"
         )
 
@@ -128,11 +120,10 @@ def analyze():
             ist_now = datetime.now(pytz.timezone("Asia/Kolkata"))
             timestamp_str = ist_now.strftime("%Y-%m-%d_%H%M%S")
             result["run_metadata"] = {
-                "run_name": "Manual User Run",
+                "run_name": "Manual User Run (Gemini AI)",
                 "executed_at_ist": ist_now.strftime("%Y-%m-%d %H:%M:%S IST"),
             }
-            history_dir = os.path.join(os.path.dirname(__file__), "history")
-            os.makedirs(history_dir, exist_ok=True)
+            history_dir = get_history_dir()
             filepath = os.path.join(history_dir, f"analysis_manual_{timestamp_str}.json")
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
@@ -141,6 +132,13 @@ def analyze():
 
         return jsonify({"status": "success", "data": result})
 
+    except GeminiQuotaError as q_err:
+        logger.warning(f"Gemini API Quota reached: {q_err}")
+        return jsonify({
+            "status": "error",
+            "message": str(q_err),
+            "retry_after": q_err.retry_after
+        }), 429
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         logger.error(traceback.format_exc())

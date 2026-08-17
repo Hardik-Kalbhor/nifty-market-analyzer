@@ -62,47 +62,106 @@ Return ONLY a valid JSON object in this exact schema:
 """
 
 
-def analyze_with_gemini(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any] | None:
-    """Analyze market data using Google Gemini API (gemini-2.5-flash)."""
-    try:
-        # Take top 10 news items for compact fast processing
-        compact_news = [
-            {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
-            for item in news_items[:10]
-        ]
-        user_content = f"""
-        NIFTY 50 Market Input Data:
-        - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
-        - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
-        
-        Analyze this data and produce the prediction JSON.
-        """
-        
-        payload = {
-            "contents": [
-                {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\n" + user_content}]}
-            ],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
+class GeminiQuotaError(Exception):
+    """Raised when Gemini API quota or rate limit (429) is hit."""
+    def __init__(self, message: str, retry_after: str = "60s"):
+        super().__init__(message)
+        self.retry_after = retry_after
 
-        # Try gemini-2.5-flash first, fallback to gemini-flash-latest
-        for model in ["gemini-2.5-flash", "gemini-flash-latest"]:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            headers = {"Content-Type": "application/json"}
+
+def extract_gemini_retry_delay(res_data: dict, headers: dict) -> str:
+    """Extract or calculate the exact refresh duration for Gemini quota."""
+    # 1. HTTP header Retry-After
+    if "Retry-After" in headers:
+        return f"{headers['Retry-After']} seconds"
+
+    # 2. Check JSON details
+    if isinstance(res_data, dict):
+        error = res_data.get("error", {})
+        details = error.get("details", [])
+        for d in details:
+            if isinstance(d, dict) and "retryDelay" in d:
+                return str(d["retryDelay"])
+        
+        # Check message content
+        msg = error.get("message", "")
+        if "check your plan" in msg or "quota" in msg.lower():
+            if "free_tier" in msg.lower() or "minute" in msg.lower():
+                return "60 seconds (per-minute RPM refresh)"
+            return "60 seconds (free tier rate window)"
+
+    return "60 seconds"
+
+
+def analyze_with_gemini(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any]:
+    """
+    Analyze market data strictly using Google Gemini AI Agent.
+    If quota is reached (429), raises GeminiQuotaError with exact refresh time.
+    """
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not set.")
+
+    # Take top 12 news items for compact deep reasoning
+    compact_news = [
+        {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
+        for item in news_items[:12]
+    ]
+    user_content = f"""
+    NIFTY 50 Market Input Data:
+    - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
+    - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
+    
+    Analyze this data and produce the prediction JSON.
+    """
+    
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\n" + user_content}]}
+        ],
+        "generationConfig": {"response_mime_type": "application/json"}
+    }
+
+    last_error = None
+    last_status = None
+    retry_delay = "60s"
+
+    # Try gemini-2.5-flash and gemini-flash-latest
+    for model in ["gemini-2.5-flash", "gemini-flash-latest"]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=12)
+            last_status = response.status_code
+
+            if response.status_code == 200:
+                result_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                logger.info(f"Successfully received Gemini AI Agent analysis response using '{model}'!")
+                res_json = json.loads(result_text)
+                res_json["ai_agent_provider"] = f"Google Gemini ({model})"
+                return res_json
             
-            try:
-                response = requests.post(url, headers=headers, json=payload, timeout=8)
-                if response.status_code == 200:
-                    result_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    logger.info(f"Successfully received Gemini AI Agent analysis response using '{model}'!")
-                    return json.loads(result_text)
-                else:
-                    logger.warning(f"Gemini API ('{model}') returned status {response.status_code}: {response.text[:150]}")
-            except Exception as model_err:
-                logger.warning(f"Gemini model {model} timeout/error: {model_err}")
-    except Exception as e:
-        logger.error(f"Error in Gemini AI Agent analysis: {e}")
-    return None
+            elif response.status_code == 429:
+                err_json = {}
+                try:
+                    err_json = response.json()
+                except Exception:
+                    pass
+                retry_delay = extract_gemini_retry_delay(err_json, response.headers)
+                logger.warning(f"Gemini API ({model}) returned 429 Quota Exceeded. Retry delay: {retry_delay}")
+                last_error = f"Gemini API quota exceeded. Please try again in {retry_delay} when your quota refreshes."
+            else:
+                logger.warning(f"Gemini API ('{model}') returned status {response.status_code}: {response.text[:150]}")
+                last_error = f"Gemini API returned status {response.status_code}."
+        except requests.exceptions.Timeout:
+            last_error = "Gemini API request timed out. Please try again in a few moments."
+        except Exception as model_err:
+            last_error = str(model_err)
+
+    if last_status == 429:
+        raise GeminiQuotaError(last_error or f"Gemini API quota reached. Please try again in {retry_delay}.", retry_delay)
+    
+    raise RuntimeError(last_error or "Gemini AI Agent analysis failed.")
 
 
 def analyze_with_grok(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any] | None:
@@ -152,35 +211,117 @@ def analyze_with_grok(news_items: list[dict], market_signals: dict, api_key: str
     return None
 
 
-def analyze_with_ai_agents(news_items: list[dict], market_signals: dict) -> dict[str, Any] | None:
-    """
-    Master function: Checks for GEMINI_API_KEY or GROK_API_KEY in environment variables.
-    Tries Gemini first, then Grok, returning None if neither key is configured or both fail.
-    """
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    grok_key = os.environ.get("GROK_API_KEY") or os.environ.get("XAI_API_KEY")
+def analyze_with_groq(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any] | None:
+    """Analyze market data using Groq Cloud API (Llama 3.3 70B / Llama 3.1 8B). 100% Free & Ultra-Fast."""
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
 
-    if gemini_key:
-        logger.info("Running AI Agent Analysis via Gemini API...")
-        res = analyze_with_gemini(news_items, market_signals, gemini_key)
-        if res:
-            res["ai_agent_provider"] = "Google Gemini"
-            return res
+        compact_news = [
+            {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
+            for item in news_items[:12]
+        ]
+        user_content = f"""
+        NIFTY 50 Market Input Data:
+        - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
+        - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
+        
+        Analyze this data and produce the prediction JSON.
+        """
 
-    if grok_key:
-        logger.info("Running AI Agent Analysis via Grok API...")
-        res = analyze_with_grok(news_items, market_signals, grok_key)
-        if res:
-            res["ai_agent_provider"] = "xAI Grok"
-            return res
+        for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content}
+                ],
+                "temperature": 0.2,
+                "response_format": {"type": "json_object"}
+            }
 
-    logger.info("No active AI Agent response (GEMINI_API_KEY / GROK_API_KEY). Using enhanced rule-based NLP + signals.")
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=8)
+                if response.status_code == 200:
+                    result_text = response.json()["choices"][0]["message"]["content"]
+                    logger.info(f"Successfully received Groq AI Agent ({model}) analysis response!")
+                    res_json = json.loads(result_text)
+                    res_json["ai_agent_provider"] = f"Groq ({model})"
+                    return res_json
+                else:
+                    logger.warning(f"Groq API ('{model}') returned status {response.status_code}: {response.text[:120]}")
+            except Exception as m_err:
+                logger.warning(f"Groq model {model} error: {m_err}")
+    except Exception as e:
+        logger.error(f"Error in Groq AI Agent analysis: {e}")
     return None
 
 
+def analyze_with_openai(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any] | None:
+    """Analyze market data using OpenAI API (GPT-4o-mini)."""
+    try:
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        compact_news = [
+            {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
+            for item in news_items[:12]
+        ]
+        user_content = f"""
+        NIFTY 50 Market Input Data:
+        - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
+        - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
+        
+        Analyze this data and produce the prediction JSON.
+        """
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content}
+            ],
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"}
+        }
+
+        response = requests.post(url, headers=headers, json=payload, timeout=8)
+        if response.status_code == 200:
+            result_text = response.json()["choices"][0]["message"]["content"]
+            logger.info("Successfully received OpenAI GPT-4o-mini analysis response!")
+            res_json = json.loads(result_text)
+            res_json["ai_agent_provider"] = "OpenAI (GPT-4o-mini)"
+            return res_json
+    except Exception as e:
+        logger.error(f"Error in OpenAI analysis: {e}")
+    return None
+
+
+def analyze_with_ai_agents(news_items: list[dict], market_signals: dict) -> dict[str, Any]:
+    """
+    Direct Google Gemini AI Agent Execution:
+    Strictly runs Google Gemini API. If quota is exceeded (429), raises GeminiQuotaError
+    with exact time required for the quota to refresh.
+    """
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if not gemini_key:
+        raise ValueError("GEMINI_API_KEY is not configured in Render environment variables. Please add your Gemini API key in Settings.")
+
+    logger.info("Running AI Agent Analysis strictly via Google Gemini API...")
+    return analyze_with_gemini(news_items, market_signals, gemini_key)
+
+
 if __name__ == "__main__":
-    # Test script fallback behavior
     sample_news = [{"headline": "HDFC Bank Q1 profit surges 25% beating estimates", "sector": "Banking & Finance"}]
     sample_signals = {"india_vix": 11.3, "pcr": 1.05, "gift_nifty_change_pct": 0.4}
-    output = analyze_with_ai_agents(sample_news, sample_signals)
-    print("AI Agent Output:", output)
+    try:
+        output = analyze_with_ai_agents(sample_news, sample_signals)
+        print("Gemini Output:", output)
+    except Exception as e:
+        print("Gemini Error:", e)
