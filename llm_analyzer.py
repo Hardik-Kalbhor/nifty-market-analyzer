@@ -212,7 +212,7 @@ def analyze_with_grok(news_items: list[dict], market_signals: dict, api_key: str
 
 
 def analyze_with_groq(news_items: list[dict], market_signals: dict, api_key: str) -> dict[str, Any] | None:
-    """Analyze market data using Groq Cloud API (Llama 3.3 70B / Llama 3.1 8B). 100% Free & Ultra-Fast."""
+    """Analyze market data using Groq Cloud API (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b). Ultra-fast ~1s."""
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -232,7 +232,7 @@ def analyze_with_groq(news_items: list[dict], market_signals: dict, api_key: str
         Analyze this data and produce the prediction JSON.
         """
 
-        for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]:
+        for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "groq/compound"]:
             payload = {
                 "model": model,
                 "messages": [
@@ -305,16 +305,24 @@ def analyze_with_openai(news_items: list[dict], market_signals: dict, api_key: s
 
 def analyze_with_ai_agents(news_items: list[dict], market_signals: dict) -> dict[str, Any]:
     """
-    Direct Google Gemini AI Agent Execution:
-    Strictly runs Google Gemini API. If quota is exceeded (429), raises GeminiQuotaError
-    with exact time required for the quota to refresh.
+    AI Agent Execution Engine:
+    1. Primary: Groq Cloud (Ultra-Fast ~1s, Free, No Quota Blocks)
+    2. Secondary: Google Gemini (gemini-2.5-flash)
     """
+    groq_key = os.environ.get("GROQ_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
-    if not gemini_key:
-        raise ValueError("GEMINI_API_KEY is not configured in Render environment variables. Please add your Gemini API key in Settings.")
 
-    logger.info("Running AI Agent Analysis strictly via Google Gemini API...")
-    return analyze_with_gemini(news_items, market_signals, gemini_key)
+    if groq_key:
+        logger.info("Running AI Agent Analysis via Groq Cloud...")
+        res = analyze_with_groq(news_items, market_signals, groq_key)
+        if res:
+            return res
+
+    if gemini_key:
+        logger.info("Running AI Agent Analysis via Google Gemini API...")
+        return analyze_with_gemini(news_items, market_signals, gemini_key)
+
+    raise ValueError("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured in environment variables. Please add GROQ_API_KEY in Render Settings.")
 
 
 if __name__ == "__main__":
@@ -322,6 +330,6 @@ if __name__ == "__main__":
     sample_signals = {"india_vix": 11.3, "pcr": 1.05, "gift_nifty_change_pct": 0.4}
     try:
         output = analyze_with_ai_agents(sample_news, sample_signals)
-        print("Gemini Output:", output)
+        print("AI Agent Output:", output)
     except Exception as e:
-        print("Gemini Error:", e)
+        print("AI Agent Error:", e)
