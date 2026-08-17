@@ -6,7 +6,7 @@
     <meta name="description" content="NIFTY 50 Market Analysis Dashboard — BTST + Intraday prediction with news sentiment analysis, sector classification, and GAP UP / GAP DOWN / FLAT forecast.">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=7.0">
 </head>
 <body>
 
@@ -29,11 +29,15 @@
         </div>
     </header>
 
-    <!-- ── Action Button ──────────────────────────── -->
-    <section class="action-section" id="action-section">
+    <!-- ── Action Buttons ──────────────────────────── -->
+    <section class="action-section" id="action-section" style="display: flex; gap: 16px; justify-content: center; align-items: center; flex-wrap: wrap;">
         <button class="btn-analyze pulse-glow" id="btn-analyze" type="button">
             <span class="btn-analyze__icon" id="btn-analyze-icon">⚡</span>
             <span id="btn-analyze-text">Start Analysing</span>
+        </button>
+        <button class="btn-history-trigger" id="btn-view-history" type="button">
+            <span style="font-size: 1.2rem;">📜</span>
+            <span>View Analysis History</span>
         </button>
     </section>
 
@@ -53,6 +57,14 @@
     <!-- ── Dashboard (shown after analysis) ───────── -->
     <main class="dashboard" id="dashboard">
 
+        <!-- ── Snapshot Active Banner ───────────────────── -->
+        <div id="snapshot-banner" class="snapshot-banner" style="display: none;">
+            <div class="snapshot-banner__content">
+                <span>📜 <strong>Viewing Historical Snapshot:</strong> <span id="snapshot-banner-title"></span></span>
+                <button id="snapshot-banner-exit" class="btn btn-secondary" style="padding: 4px 12px; font-size: 0.78rem;">✖️ Exit Snapshot View</button>
+            </div>
+        </div>
+
         <!-- ════════════════════════════════════════════ -->
         <!-- TAB NAVIGATION: BTST / INTRADAY             -->
         <!-- ════════════════════════════════════════════ -->
@@ -66,6 +78,11 @@
                 <span class="tab-btn__icon">⚡</span>
                 <span>Intraday Prediction</span>
                 <span class="tab-btn__hint">Today's Movement</span>
+            </button>
+            <button class="tab-btn" data-tab="history" id="tab-history">
+                <span class="tab-btn__icon">📜</span>
+                <span>Analysis History</span>
+                <span class="tab-btn__hint">Past Scheduled Runs</span>
             </button>
         </nav>
 
@@ -136,6 +153,29 @@
                 <div class="summary-text" id="summary-text"></div>
             </section>
 
+            <!-- Live Microstructure Signals Table -->
+            <section class="animate-in animate-in-delay-2" id="major-drivers-section">
+                <div class="section-title">
+                    <span class="section-title__icon">📊</span>
+                    Live Microstructure Signals & Major Drivers
+                </div>
+                <div class="table-responsive card" style="padding: 0; overflow: hidden; margin-bottom: 32px;">
+                    <table class="signals-table">
+                        <thead>
+                            <tr>
+                                <th>Signal / Indicator</th>
+                                <th>Live Scraped Value</th>
+                                <th>Category</th>
+                                <th>Market Impact & Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="signals-table-body">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
             <!-- Event Risk -->
             <div class="event-risk-strip low animate-in animate-in-delay-2" id="event-risk"></div>
 
@@ -177,6 +217,43 @@
                     Sector-wise Sentiment
                 </div>
                 <div class="sector-grid" id="sector-grid"></div>
+            </section>
+
+            <!-- ── Top Bullish & Bearish Headlines Section ── -->
+            <div class="card top-news-card animate-in animate-in-delay-5" id="top-news-card" style="margin-top: 32px; margin-bottom: 32px;">
+                <div class="section-title" style="margin-bottom: 6px;">
+                    <span class="section-title__icon">🔥</span>
+                    Top Bullish / Bearish Market Headlines
+                </div>
+                <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 20px;">
+                    News articles categorized and arranged in <strong>descending order</strong> of NIFTY market impact score
+                </div>
+                <div class="top-news-grid">
+                    <div class="top-news-column bullish-col">
+                        <div class="top-news-column__header bull-header">
+                            <span>🟢 Top Bullish News</span>
+                            <span class="top-news-column__count" id="top-bullish-count">0 articles</span>
+                        </div>
+                        <div class="top-news-list" id="top-bullish-news-list"></div>
+                    </div>
+                    <div class="top-news-column bearish-col">
+                        <div class="top-news-column__header bear-header">
+                            <span>🔴 Top Bearish News</span>
+                            <span class="top-news-column__count" id="top-bearish-count">0 articles</span>
+                        </div>
+                        <div class="top-news-list" id="top-bearish-news-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── All News Headlines ── -->
+            <section class="animate-in animate-in-delay-5">
+                <div class="section-title">
+                    <span class="section-title__icon">📰</span>
+                    All News Headlines
+                </div>
+                <div class="news-filters" id="news-filters"></div>
+                <div class="news-grid" id="news-grid"></div>
             </section>
 
         </div>
@@ -277,16 +354,45 @@
         </div>
 
         <!-- ════════════════════════════════════════════ -->
-        <!-- COMMON: News Section (always visible)        -->
+        <!-- TAB: ANALYSIS HISTORY                       -->
         <!-- ════════════════════════════════════════════ -->
-        <section class="animate-in animate-in-delay-5">
-            <div class="section-title">
-                <span class="section-title__icon">📰</span>
-                All News Headlines
-            </div>
-            <div class="news-filters" id="news-filters"></div>
-            <div class="news-grid" id="news-grid"></div>
-        </section>
+        <div class="tab-content" id="content-history">
+            <section class="card animate-in" style="margin-bottom: 32px;">
+                <div class="section-title" style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <span class="section-title__icon">📜</span>
+                        Historical Analysis Runs & Saved Snapshots
+                    </div>
+                    <button class="btn btn-secondary" id="refresh-history-btn" style="padding: 6px 14px; font-size: 0.8rem;">
+                        🔄 Refresh History
+                    </button>
+                </div>
+
+                <div class="history-columns-container">
+                    <!-- Column 1: Scheduled Runs -->
+                    <div class="history-column">
+                        <div class="history-column__header">
+                            <span class="history-column__icon">⏰</span>
+                            <span class="history-column__title">Automated Scheduled Runs (Mon–Fri)</span>
+                        </div>
+                        <div class="history-grid" id="scheduled-runs-grid">
+                            <div style="text-align: center; padding: 24px; color: var(--text-muted);">Loading scheduled runs...</div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Manual Runs -->
+                    <div class="history-column">
+                        <div class="history-column__header">
+                            <span class="history-column__icon">⚡</span>
+                            <span class="history-column__title">Manual On-Demand Runs</span>
+                        </div>
+                        <div class="history-grid" id="manual-runs-grid">
+                            <div style="text-align: center; padding: 24px; color: var(--text-muted);">Loading manual runs...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
 
     </main>
 
@@ -304,7 +410,7 @@
 
 </div>
 
-<script src="{{ url_for('static', filename='script.js') }}"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=7.0"></script>
 
 </body>
 </html>

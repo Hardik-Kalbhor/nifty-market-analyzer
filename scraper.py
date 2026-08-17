@@ -109,6 +109,25 @@ SECTOR_KEYWORDS: dict[str, list[str]] = {
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Personal Finance & Retail Advice Exclusions
+# (Filters out noise articles irrelevant to NIFTY 50)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PERSONAL_FINANCE_EXCLUSIONS: list[str] = [
+    "credit score", "cibil", "loan guarantor", "guarantor", "itr ", "tax return",
+    "form 16", "form 26as", "huf ", "nro bank account", "nre account",
+    "personal finance", "saving account", "credit card limit", "fixed deposit",
+    "home loan eligibility", "health insurance premium", "term insurance policy",
+    "epf withdrawal", "ppf interest", "gift tax", "income tax slab",
+]
+
+
+def _is_personal_finance_noise(text: str) -> bool:
+    """Return True if article is retail personal finance advice (irrelevant to NIFTY)."""
+    text_lower = text.lower()
+    return any(kw in text_lower for kw in PERSONAL_FINANCE_EXCLUSIONS)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # News Category Keywords (for analyzer)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -310,6 +329,9 @@ def fetch_google_news_rss(query: str, category: str = "general", max_items: int 
 
             combined_text = f"{headline} {snippet}"
 
+            if _is_personal_finance_noise(combined_text):
+                continue
+
             items.append(
                 NewsItem(
                     headline=headline,
@@ -344,6 +366,9 @@ def fetch_direct_rss(url: str, source_name: str, category: str = "general", max_
             link = entry.get("link", "")
 
             combined_text = f"{headline} {snippet}"
+
+            if _is_personal_finance_noise(combined_text):
+                continue
 
             items.append(
                 NewsItem(

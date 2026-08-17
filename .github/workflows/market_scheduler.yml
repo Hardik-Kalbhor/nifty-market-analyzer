@@ -1,0 +1,30 @@
+name: NIFTY Daily Market Automation Runs
+
+on:
+  schedule:
+    # 08:30 AM IST = 03:00 UTC (Mon-Fri)
+    - cron: '0 3 * * 1-5'
+    # 09:45 AM IST = 04:15 UTC (Mon-Fri)
+    - cron: '15 4 * * 1-5'
+    # 01:30 PM IST = 08:00 UTC (Mon-Fri)
+    - cron: '0 8 * * 1-5'
+    # 03:15 PM IST = 09:45 UTC (Mon-Fri)
+    - cron: '45 9 * * 1-5'
+    # 05:30 PM IST = 12:00 UTC (Mon-Fri)
+    - cron: '0 12 * * 1-5'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  trigger-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Automated Analysis on Vercel
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+        run: |
+          echo "Triggering automated analysis at $(date)..."
+          if [ -n "$APP_URL" ]; then
+            curl -s -X POST "$APP_URL/api/trigger-schedule" || curl -s -X GET "$APP_URL/api/trigger-schedule"
+          else
+            echo "VERCEL_APP_URL secret is not set yet. Please add your Vercel app URL in GitHub Secrets."
+          fi

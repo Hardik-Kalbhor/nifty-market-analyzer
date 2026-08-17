@@ -50,6 +50,10 @@ function switchTab(tab) {
     document.querySelectorAll(".tab-content").forEach((content) => {
         content.classList.toggle("active", content.id === `content-${tab}`);
     });
+
+    if (tab === "history") {
+        loadHistoryList();
+    }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -172,11 +176,13 @@ async function startAnalysis() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function renderDashboard(data) {
+    analysisData = data;
     // BTST Tab
     renderPredictionHero(data);
     renderInfoStrip(data);
     renderScoreBar(data);
     renderSummary(data);
+    renderSignalsTable(data);
     renderEventRisk(data);
     renderKeyDrivers(data);
     renderFactors(data);
@@ -185,7 +191,8 @@ function renderDashboard(data) {
     // Intraday Tab
     renderIntradayPrediction(data);
 
-    // Common: News (sorted by date)
+    // Common: News
+    renderTopBullishBearishNews(data);
     renderNewsCards(data);
 
     dashboard.classList.add("active");
@@ -351,6 +358,139 @@ function renderScoreBar(data) {
 
 function renderSummary(data) {
     document.getElementById("summary-text").textContent = data.final_summary;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Live Microstructure Signals Table (GIFT Nifty, FII, DII, VIX, PCR, Global)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function renderSignalsTable(data) {
+    const tbody = document.getElementById("signals-table-body");
+    if (!tbody) return;
+
+    const ms = data.market_signals || data.market_signals_detail || {};
+    const fiiDii = data.fii_dii || {};
+    const globalMkts = ms.global_markets || {};
+
+    const rows = [];
+
+    // 1. GIFT Nifty
+    const giftPct = ms.gift_nifty_change_pct;
+    if (giftPct !== null && giftPct !== undefined) {
+        const valStr = giftPct >= 0 ? `+${giftPct.toFixed(2)}%` : `${giftPct.toFixed(2)}%`;
+        const cls = giftPct > 0.2 ? "positive" : (giftPct < -0.2 ? "negative" : "neutral");
+        const status = giftPct > 0.2 ? "🟢 GAP UP (Positive Opening Bias)" : (giftPct < -0.2 ? "🔴 GAP DOWN (Negative Opening Bias)" : "🟡 FLAT (No Directional Gap)");
+        rows.push({ name: "🎁 GIFT Nifty", value: valStr, category: "Overnight Gap Indicator", status, cls });
+    }
+
+    // 2. FII Flow
+    const fiiNet = fiiDii.fii_net !== undefined ? fiiDii.fii_net : (fiiDii.fii_net_crores !== undefined ? fiiDii.fii_net_crores : (fiiDii.fii ? fiiDii.fii.net : null));
+    if (fiiNet !== null && fiiNet !== undefined) {
+        const valStr = `₹${formatCrore(fiiNet)} Cr`;
+        const cls = fiiNet >= 0 ? "positive" : "negative";
+        const status = fiiNet >= 0 ? "🟢 NET BUYERS (Foreign Institutional Inflows)" : "🔴 NET SELLERS (Foreign Institutional Outflows)";
+        rows.push({ name: "🏦 FII Cash Flow", value: valStr, category: "Institutional Flow", status, cls });
+    }
+
+    // 3. DII Flow
+    const diiNet = fiiDii.dii_net !== undefined ? fiiDii.dii_net : (fiiDii.dii_net_crores !== undefined ? fiiDii.dii_net_crores : (fiiDii.dii ? fiiDii.dii.net : null));
+    if (diiNet !== null && diiNet !== undefined) {
+        const valStr = `₹${formatCrore(diiNet)} Cr`;
+        const cls = diiNet >= 0 ? "positive" : "negative";
+        const status = diiNet >= 0 ? "🟢 NET BUYERS (Domestic Institutional Support)" : "🔴 NET SELLERS (Domestic Outflows)";
+        rows.push({ name: "🏛️ DII Cash Flow", value: valStr, category: "Institutional Flow", status, cls });
+    }
+
+    // 4. India VIX
+    const vix = ms.india_vix;
+    const vixChg = ms.india_vix_change_pct;
+    if (vix !== null && vix !== undefined) {
+        const chgStr = vixChg !== null && vixChg !== undefined ? ` (${vixChg >= 0 ? "+" : ""}${vixChg.toFixed(2)}%)` : "";
+        const valStr = `${vix.toFixed(2)}${chgStr}`;
+        const cls = vix < 16 ? "positive" : (vix > 20 ? "negative" : "neutral");
+        const status = vix < 16 ? "🟢 LOW VOLATILITY (Safe Option Premium Regime)" : (vix > 20 ? "🔴 HIGH VOLATILITY (Extreme Premium Risk)" : "🟡 MODERATE VOLATILITY");
+        rows.push({ name: "📈 India VIX", value: valStr, category: "Volatility Index", status, cls });
+    }
+
+    // 5. Put-Call Ratio
+    const pcr = ms.pcr;
+    if (pcr !== null && pcr !== undefined) {
+        const valStr = `${pcr.toFixed(2)}`;
+        const cls = pcr > 1.2 ? "positive" : (pcr < 0.8 ? "negative" : "neutral");
+        const status = pcr > 1.2 ? "🟢 BULLISH SUPPORT (Call Writers Trapped)" : (pcr < 0.8 ? "🔴 BEARISH RESISTANCE (Put Writers Trapped)" : "🟡 NEUTRAL (Balanced Open Interest)");
+        rows.push({ name: "🎯 Put-Call Ratio (PCR)", value: valStr, category: "Options Open Interest", status, cls });
+    }
+
+    // 6. Regional & Global Markets Configuration
+    const MARKET_META = {
+        sp500: {
+            name: "🇺🇸 S&P 500 Index",
+            region: "US Broad Market (Wall Street)",
+            cueRegion: "US CUE"
+        },
+        nasdaq: {
+            name: "🇺🇸 NASDAQ Index",
+            region: "US Tech Sector (Wall Street)",
+            cueRegion: "US TECH CUE"
+        },
+        dow: {
+            name: "🇺🇸 DOW Jones Index",
+            region: "US Bluechips (NYSE)",
+            cueRegion: "US DOW CUE"
+        },
+        nikkei: {
+            name: "🇯🇵 NIKKEI 225 Index",
+            region: "Asia / Japan (Tokyo)",
+            cueRegion: "ASIAN CUE"
+        },
+        hangseng: {
+            name: "🇭🇰 HANG SENG Index",
+            region: "Asia / Hong Kong & China",
+            cueRegion: "ASIAN CUE"
+        },
+        dax: {
+            name: "🇩🇪 DAX 40 Index",
+            region: "Europe / Germany (Frankfurt)",
+            cueRegion: "EUROPEAN CUE"
+        }
+    };
+
+    Object.entries(globalMkts).forEach(([symbol, pct]) => {
+        if (pct !== null && pct !== undefined) {
+            const key = symbol.toLowerCase();
+            const meta = MARKET_META[key] || {
+                name: `🌐 ${symbol.toUpperCase()} Index`,
+                region: "Global Equity Market",
+                cueRegion: "GLOBAL CUE"
+            };
+
+            const valStr = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`;
+            const cls = pct > 0.2 ? "positive" : (pct < -0.2 ? "negative" : "neutral");
+            const status = pct > 0.2 ? `🟢 POSITIVE ${meta.cueRegion}` : (pct < -0.2 ? `🔴 NEGATIVE ${meta.cueRegion}` : `🟡 NEUTRAL ${meta.cueRegion}`);
+
+            rows.push({
+                name: meta.name,
+                value: valStr,
+                category: meta.region,
+                status: status,
+                cls
+            });
+        }
+    });
+
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 24px; color: var(--text-muted);">No live microstructure signals available</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td style="font-weight: 700; padding: 14px 16px;">${escapeHtml(r.name)}</td>
+            <td class="${r.cls}" style="font-family: 'JetBrains Mono', monospace; font-weight: 800; font-size: 1.05rem; padding: 14px 16px;">${escapeHtml(r.value)}</td>
+            <td style="color: var(--text-muted); font-size: 0.82rem; padding: 14px 16px;">${escapeHtml(r.category)}</td>
+            <td class="${r.cls}" style="font-weight: 600; font-size: 0.85rem; padding: 14px 16px;">${escapeHtml(r.status)}</td>
+        </tr>
+    `).join("");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -556,6 +696,92 @@ function getPatternClass(pattern) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Top Bullish & Bearish News Columns (Descending Order by Impact)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function renderTopBullishBearishNews(data) {
+    const bullList = document.getElementById("top-bullish-news-list");
+    const bearList = document.getElementById("top-bearish-news-list");
+    const bullCount = document.getElementById("top-bullish-count");
+    const bearCount = document.getElementById("top-bearish-count");
+
+    if (!bullList || !bearList) return;
+
+    const allNews = data.all_news || data.major_news || [];
+
+    // Filter Bullish news & sort descending by impact_score / bullish_score
+    const bullishNews = allNews
+        .filter((n) => n.impact === "BULLISH")
+        .sort((a, b) => (b.impact_score || b.bullish_score || 0) - (a.impact_score || a.bullish_score || 0));
+
+    // Filter Bearish news & sort descending by impact_score / bearish_score
+    const bearishNews = allNews
+        .filter((n) => n.impact === "BEARISH")
+        .sort((a, b) => (b.impact_score || b.bearish_score || 0) - (a.impact_score || a.bearish_score || 0));
+
+    if (bullCount) bullCount.textContent = `${bullishNews.length} article${bullishNews.length !== 1 ? "s" : ""}`;
+    if (bearCount) bearCount.textContent = `${bearishNews.length} article${bearishNews.length !== 1 ? "s" : ""}`;
+
+    // Render Bullish Column
+    if (bullishNews.length === 0) {
+        bullList.innerHTML = '<div class="top-news-empty">No bullish news headlines detected</div>';
+    } else {
+        bullList.innerHTML = bullishNews
+            .map(
+                (n) => `
+            <div class="top-news-item bullish">
+                <div class="top-news-item__header">
+                    <a href="${escapeHtml(n.link)}" target="_blank" rel="noopener noreferrer" class="top-news-item__title">
+                        ${escapeHtml(n.headline)}
+                    </a>
+                    <span class="news-card__strength bullish">
+                        ${escapeHtml(n.strength_badge || `🔥 High Impact (+${n.bullish_score || n.impact_score})`)}
+                    </span>
+                </div>
+                <div class="top-news-item__meta">
+                    <span class="sector-tag">${escapeHtml(n.sector)}</span>
+                    <span>•</span>
+                    <span>${escapeHtml(n.source)}</span>
+                    <span>•</span>
+                    <span>🕐 ${escapeHtml(n.published_date)}</span>
+                </div>
+            </div>
+        `
+            )
+            .join("");
+    }
+
+    // Render Bearish Column
+    if (bearishNews.length === 0) {
+        bearList.innerHTML = '<div class="top-news-empty">No bearish news headlines detected</div>';
+    } else {
+        bearList.innerHTML = bearishNews
+            .map(
+                (n) => `
+            <div class="top-news-item bearish">
+                <div class="top-news-item__header">
+                    <a href="${escapeHtml(n.link)}" target="_blank" rel="noopener noreferrer" class="top-news-item__title">
+                        ${escapeHtml(n.headline)}
+                    </a>
+                    <span class="news-card__strength bearish">
+                        ${escapeHtml(n.strength_badge || `🔥 High Impact (-${n.bearish_score || n.impact_score})`)}
+                    </span>
+                </div>
+                <div class="top-news-item__meta">
+                    <span class="sector-tag">${escapeHtml(n.sector)}</span>
+                    <span>•</span>
+                    <span>${escapeHtml(n.source)}</span>
+                    <span>•</span>
+                    <span>🕐 ${escapeHtml(n.published_date)}</span>
+                </div>
+            </div>
+        `
+            )
+            .join("");
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // News Cards (sorted by date — most recent first)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -638,9 +864,12 @@ function renderNewsCards(data) {
                         ${escapeHtml(n.headline)}
                     </a>
                 </div>
-                <span class="news-card__impact ${n.impact.toLowerCase()}">
-                    ${impactIcon(n.impact)} ${n.impact}
-                </span>
+                <div class="news-card__badges">
+                    <span class="news-card__impact ${n.impact.toLowerCase()}">
+                        ${impactIcon(n.impact)} ${n.impact}
+                    </span>
+                    ${n.strength_badge ? `<span class="news-card__strength ${n.impact.toLowerCase()}">${escapeHtml(n.strength_badge)}</span>` : ""}
+                </div>
             </div>
             <div class="news-card__meta">
                 <span class="news-card__tag sector-tag">${escapeHtml(n.sector)}</span>
@@ -705,6 +934,18 @@ function formatCrore(value) {
 
 btnAnalyze.addEventListener("click", startAnalysis);
 
+const btnViewHistory = document.getElementById("btn-view-history");
+if (btnViewHistory) {
+    btnViewHistory.addEventListener("click", () => {
+        dashboard.classList.add("active");
+        switchTab("history");
+        const historySection = document.getElementById("content-history");
+        if (historySection) {
+            historySection.scrollIntoView({ behavior: "smooth" });
+        }
+    });
+}
+
 // Keyboard shortcut: Enter to start
 document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !btnAnalyze.disabled && !dashboard.classList.contains("active")) {
@@ -714,3 +955,159 @@ document.addEventListener("keydown", (e) => {
 
 // Initialize tabs
 initTabs();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Analysis History Implementation
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const refreshHistoryBtn = document.getElementById("refresh-history-btn");
+if (refreshHistoryBtn) {
+    refreshHistoryBtn.addEventListener("click", loadHistoryList);
+}
+
+async function loadHistoryList() {
+    const scheduledGrid = document.getElementById("scheduled-runs-grid");
+    const manualGrid = document.getElementById("manual-runs-grid");
+    if (!scheduledGrid || !manualGrid) return;
+
+    scheduledGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-muted);">🔄 Loading scheduled runs...</div>`;
+    manualGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--text-muted);">🔄 Loading manual runs...</div>`;
+
+    try {
+        const res = await fetch("/api/history");
+        const json = await res.json();
+
+        if (json.status !== "success") {
+            scheduledGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--bearish);">Error fetching history</div>`;
+            manualGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--bearish);">Error fetching history</div>`;
+            return;
+        }
+
+        const renderRunCard = (run) => {
+            const pred = run.prediction || "FLAT";
+            const predClass = pred === "GAP UP" ? "positive" : (pred === "GAP DOWN" ? "negative" : "neutral");
+            const icon = pred === "GAP UP" ? "🟢" : (pred === "GAP DOWN" ? "🔴" : "🟡");
+            const fiiStr = run.fii_net !== undefined && run.fii_net !== null ? `FII: ${formatCrore(run.fii_net)} Cr` : "";
+            const diiStr = run.dii_net !== undefined && run.dii_net !== null ? `DII: ${formatCrore(run.dii_net)} Cr` : "";
+            const flowStr = fiiStr || diiStr ? `${fiiStr} | ${diiStr}` : "Institutional Flow Captured";
+
+            return `
+                <div class="history-item-card">
+                    <div class="history-item-card__header">
+                        <div class="history-item-card__title">${escapeHtml(run.run_name || "Run")}</div>
+                        <div class="history-item-badge ${predClass}">${icon} ${pred} (${run.confidence}%)</div>
+                    </div>
+                    <div class="history-item-card__time">⏰ Executed at: <strong>${escapeHtml(run.executed_at_ist || run.filename)}</strong></div>
+                    <div class="history-item-card__subtext">${escapeHtml(flowStr)}</div>
+                    <button type="button" class="btn btn-secondary history-load-btn" data-filename="${escapeHtml(run.filename)}">
+                        👁️ Load Full Snapshot
+                    </button>
+                </div>
+            `;
+        };
+
+        // Scheduled Column Render
+        const scheduledRuns = json.scheduled || [];
+        if (scheduledRuns.length === 0) {
+            scheduledGrid.innerHTML = `
+                <div class="history-empty-box">
+                    <div style="font-size: 1.5rem; margin-bottom: 4px;">⏰</div>
+                    <div style="font-weight: 600; font-size: 0.85rem;">No scheduled runs yet</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Triggers Mon–Fri at 08:30, 09:45, 13:30, 15:15, and 17:30 IST</div>
+                </div>
+            `;
+        } else {
+            scheduledGrid.innerHTML = scheduledRuns.map(renderRunCard).join("");
+        }
+
+        // Manual Column Render
+        const manualRuns = json.manual || [];
+        if (manualRuns.length === 0) {
+            manualGrid.innerHTML = `
+                <div class="history-empty-box">
+                    <div style="font-size: 1.5rem; margin-bottom: 4px;">⚡</div>
+                    <div style="font-weight: 600; font-size: 0.85rem;">No manual runs yet</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">Click "Start Analysing" to run on-demand</div>
+                </div>
+            `;
+        } else {
+            manualGrid.innerHTML = manualRuns.map(renderRunCard).join("");
+        }
+
+    } catch (e) {
+        console.error("History fetch error:", e);
+        scheduledGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--bearish);">Failed to load history</div>`;
+        manualGrid.innerHTML = `<div style="text-align: center; padding: 24px; color: var(--bearish);">Failed to load history</div>`;
+    }
+}
+
+async function loadHistorySnapshot(filename) {
+    console.log("Loading history snapshot:", filename);
+
+    // Show loading overlay (same as startAnalysis)
+    loadingOverlay.classList.add("active");
+    if (loadingText) loadingText.textContent = "Loading historical snapshot...";
+    if (loadingSubtext) loadingSubtext.textContent = "Restoring prediction and market signals from: " + filename;
+
+    try {
+        const res = await fetch(`/api/history/${encodeURIComponent(filename)}`);
+        const json = await res.json();
+
+        // Hide loading overlay
+        loadingOverlay.classList.remove("active");
+
+        if (json.status === "success" && json.data) {
+            try {
+                renderDashboard(json.data);
+
+                // Show Snapshot Active Banner
+                const banner = document.getElementById("snapshot-banner");
+                const bannerTitle = document.getElementById("snapshot-banner-title");
+                const bannerExit = document.getElementById("snapshot-banner-exit");
+                if (banner && bannerTitle) {
+                    const meta = json.data.run_metadata || {};
+                    bannerTitle.textContent = `${meta.run_name || "Historical Snapshot"} (${meta.executed_at_ist || filename})`;
+                    banner.style.display = "block";
+                }
+                if (bannerExit) {
+                    bannerExit.onclick = () => {
+                        banner.style.display = "none";
+                        switchTab("history");
+                    };
+                }
+
+                switchTab("btst");
+                const targetEl = document.getElementById("snapshot-banner") || document.getElementById("tab-nav");
+                if (targetEl) {
+                    targetEl.scrollIntoView({ behavior: "smooth" });
+                }
+            } catch (renderErr) {
+                console.error("Dashboard render error on snapshot:", renderErr);
+                renderError("Failed to render snapshot: " + renderErr.message);
+            }
+        } else {
+            renderError("Failed to load historical snapshot: " + (json.message || "Unknown error"));
+        }
+    } catch (e) {
+        loadingOverlay.classList.remove("active");
+        console.error("Snapshot fetch error:", e);
+        renderError("Error loading snapshot: " + e.message);
+    }
+}
+
+// Global Event Listener for History Load Buttons (Event Delegation)
+document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".history-load-btn");
+    if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const filename = btn.getAttribute("data-filename");
+        console.log("History load button clicked for filename:", filename);
+        if (filename) {
+            loadHistorySnapshot(filename);
+        }
+    }
+});
+
+// Expose loadHistorySnapshot globally
+window.loadHistorySnapshot = loadHistorySnapshot;

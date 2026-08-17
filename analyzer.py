@@ -833,19 +833,33 @@ def analyze_news(
         impact = _determine_impact(bull, bear)
 
         for kw in bull_kw:
-            factor = f"{kw.replace('_', ' ').title()} ({item.get('headline', '')[:60]})"
-            if factor not in all_bull_factors:
-                all_bull_factors.append(factor)
+            score_val = round(weighted_bull, 1)
+            factor_text = f"{kw.replace('_', ' ').title()} (+{score_val}) — {item.get('headline', '')[:65]}"
+            if not any(f["text"] == factor_text for f in all_bull_factors):
+                all_bull_factors.append({"text": factor_text, "score": score_val})
+
         for kw in bear_kw:
-            factor = f"{kw.replace('_', ' ').title()} ({item.get('headline', '')[:60]})"
-            if factor not in all_bear_factors:
-                all_bear_factors.append(factor)
+            score_val = round(weighted_bear, 1)
+            factor_text = f"{kw.replace('_', ' ').title()} (-{score_val}) — {item.get('headline', '')[:65]}"
+            if not any(f["text"] == factor_text for f in all_bear_factors):
+                all_bear_factors.append({"text": factor_text, "score": score_val})
 
         if sector not in sector_sentiment:
             sector_sentiment[sector] = {"bullish": 0.0, "bearish": 0.0, "count": 0}
         sector_sentiment[sector]["bullish"] += bull
         sector_sentiment[sector]["bearish"] += bear
         sector_sentiment[sector]["count"] += 1
+
+        max_score = round(max(bull, bear), 1)
+        if max_score >= 5.0:
+            strength_level = "HIGH IMPACT"
+            strength_badge = f"🔥 High Impact ({max_score})"
+        elif max_score >= 2.5:
+            strength_level = "MEDIUM IMPACT"
+            strength_badge = f"⚡ Medium Impact ({max_score})"
+        else:
+            strength_level = "LOW IMPACT"
+            strength_badge = f"📈 Low Impact ({max_score})"
 
         analyzed_news.append({
             "headline": item.get("headline", ""),
@@ -858,6 +872,9 @@ def analyze_news(
             "importance": importance,
             "bullish_score": round(bull, 1),
             "bearish_score": round(bear, 1),
+            "impact_score": max_score,
+            "strength_level": strength_level,
+            "strength_badge": strength_badge,
             "recency_multiplier": round(recency_mult, 2),
         })
 
@@ -886,10 +903,11 @@ def analyze_news(
             else ("BEARISH" if gift_nifty_change_pct < -0.25 else None)
         )
         if gift_factor:
+            g_score = max(gift_bull, gift_bear)
             if gift_bull > gift_bear:
-                all_bull_factors.insert(0, gift_factor)
+                all_bull_factors.append({"text": gift_factor, "score": g_score})
             else:
-                all_bear_factors.insert(0, gift_factor)
+                all_bear_factors.append({"text": gift_factor, "score": g_score})
 
     # ── India VIX scoring ─────────────────────────
     vix_result: dict = {}
@@ -901,11 +919,10 @@ def analyze_news(
         vix_bear_boost = vix_result.get("bear_boost", 0.0)
         if vix_bear_boost > 0:
             total_bear_score += vix_bear_boost
-            all_bear_factors.insert(0, vix_result["factor"])
+            all_bear_factors.append({"text": vix_result["factor"], "score": abs(vix_bear_boost)})
         elif vix_bear_boost < 0:
-            # Negative bear = mild bull signal
             total_bull_score += abs(vix_bear_boost)
-            all_bull_factors.insert(0, vix_result["factor"])
+            all_bull_factors.append({"text": vix_result["factor"], "score": abs(vix_bear_boost)})
 
     # ── PCR scoring ───────────────────────────────
     pcr_bull = 0.0
@@ -917,10 +934,11 @@ def analyze_news(
         total_bull_score += pcr_bull
         total_bear_score += pcr_bear
         if pcr_factor:
+            p_score = max(pcr_bull, pcr_bear)
             if pcr_bull > pcr_bear:
-                all_bull_factors.append(pcr_factor)
+                all_bull_factors.append({"text": pcr_factor, "score": p_score})
             elif pcr_bear > pcr_bull:
-                all_bear_factors.append(pcr_factor)
+                all_bear_factors.append({"text": pcr_factor, "score": p_score})
 
     # ── Global markets scoring ────────────────────
     global_bull = 0.0
@@ -936,8 +954,11 @@ def analyze_news(
             "BULLISH" if global_bull > global_bear + 5
             else ("BEARISH" if global_bear > global_bull + 5 else None)
         )
-        all_bull_factors.extend([f for f in global_factors if "up" in f.lower()])
-        all_bear_factors.extend([f for f in global_factors if "down" in f.lower()])
+        for f in global_factors:
+            if "up" in f.lower():
+                all_bull_factors.append({"text": f, "score": 4.0})
+            elif "down" in f.lower():
+                all_bear_factors.append({"text": f, "score": 4.0})
 
     # ── Event risk ────────────────────────────────
     event_risk = _detect_event_risk(combined_text)
@@ -1028,6 +1049,11 @@ def analyze_news(
             "sector": n["sector"],
             "impact": n["impact"],
             "importance": n["importance"],
+            "impact_score": n.get("impact_score", 0.0),
+            "strength_level": n.get("strength_level", "NEUTRAL"),
+            "strength_badge": n.get("strength_badge", "📈 Low Impact"),
+            "bullish_score": n.get("bullish_score", 0.0),
+            "bearish_score": n.get("bearish_score", 0.0),
         }
         for n in analyzed_news[:20]
     ]
@@ -1053,18 +1079,35 @@ def analyze_news(
             "news_count": data["count"],
         })
 
+    # Sort factors in descending order by impact score (highest impact first)
+    all_bull_factors.sort(key=lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0, reverse=True)
+    all_bear_factors.sort(key=lambda x: x.get("score", 0.0) if isinstance(x, dict) else 0.0, reverse=True)
+
+    # Deduplicate while preserving descending impact score order
+    seen_bull = set()
+    bullish_factors = []
+    for f in all_bull_factors:
+        text = f["text"] if isinstance(f, dict) else str(f)
+        if text not in seen_bull:
+            seen_bull.add(text)
+            bullish_factors.append(text)
+
+    seen_bear = set()
+    bearish_factors = []
+    for f in all_bear_factors:
+        text = f["text"] if isinstance(f, dict) else str(f)
+        if text not in seen_bear:
+            seen_bear.add(text)
+            bearish_factors.append(text)
+
     # ── Final summary ─────────────────────────────
     final_summary = _generate_summary(
         prediction, confidence, news_sentiment,
         total_bull_score, total_bear_score,
-        all_bull_factors, all_bear_factors,
+        bullish_factors, bearish_factors,
         event_risk, confluence,
         gift_nifty_change_pct, vix_result,
     )
-
-    # Clean & deduplicate factor lists
-    bullish_factors = list(dict.fromkeys([f.split(" (")[0] for f in all_bull_factors[:10]]))
-    bearish_factors = list(dict.fromkeys([f.split(" (")[0] for f in all_bear_factors[:10]]))
 
     return {
         "prediction": prediction,
@@ -1112,8 +1155,8 @@ def analyze_news(
 def _extract_key_drivers(
     bull_total: float,
     bear_total: float,
-    bull_factors: list[str],
-    bear_factors: list[str],
+    bull_factors: list,
+    bear_factors: list,
     event_risk: str,
     sector_sentiment: dict,
     gift_nifty_change_pct: float | None = None,
@@ -1128,7 +1171,6 @@ def _extract_key_drivers(
             f"GIFT Nifty {direction} {gift_nifty_change_pct:+.2f}% "
             f"— primary gap predictor"
         )
-
 
     # Net score
     if bull_total > bear_total:
@@ -1163,9 +1205,11 @@ def _extract_key_drivers(
         drivers.append("Moderate event risk — watch for volatility")
 
     if bull_factors:
-        drivers.append(f"Top bullish: {bull_factors[0].split(' (')[0]}")
+        b_text = bull_factors[0]["text"] if isinstance(bull_factors[0], dict) else str(bull_factors[0])
+        drivers.append(f"Top bullish: {b_text.split(' (')[0]}")
     if bear_factors:
-        drivers.append(f"Top bearish risk: {bear_factors[0].split(' (')[0]}")
+        br_text = bear_factors[0]["text"] if isinstance(bear_factors[0], dict) else str(bear_factors[0])
+        drivers.append(f"Top bearish risk: {br_text.split(' (')[0]}")
 
     return drivers[:8]
 
@@ -1176,8 +1220,8 @@ def _generate_summary(
     sentiment: str,
     bull_score: float,
     bear_score: float,
-    bull_factors: list[str],
-    bear_factors: list[str],
+    bull_factors: list,
+    bear_factors: list,
     event_risk: str,
     confluence: dict | None = None,
     gift_nifty_change_pct: float | None = None,
@@ -1223,9 +1267,11 @@ def _generate_summary(
 
     # Key factors
     if bull_factors:
-        parts.append(f"Key bullish driver: {bull_factors[0].split(' (')[0]}.")
+        b_text = bull_factors[0]["text"] if isinstance(bull_factors[0], dict) else str(bull_factors[0])
+        parts.append(f"Key bullish driver: {b_text.split(' (')[0]}.")
     if bear_factors:
-        parts.append(f"Key bearish risk: {bear_factors[0].split(' (')[0]}.")
+        br_text = bear_factors[0]["text"] if isinstance(bear_factors[0], dict) else str(bear_factors[0])
+        parts.append(f"Key bearish risk: {br_text.split(' (')[0]}.")
 
     # Event risk
     if event_risk == "HIGH":
