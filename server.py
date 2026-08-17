@@ -60,8 +60,8 @@ def analyze():
         fii_dii_data = fetch_fii_dii_data()
         market_signals = fetch_all_market_signals()
 
-        # Phase 3: Strict Google Gemini AI Agent Analysis (No rule-based fallback)
-        logger.info("Phase 3: Running Gemini AI Agent analysis (BTST)...")
+        # Phase 3: AI Agent Analysis (No rule-based fallback)
+        logger.info("Phase 3: Running AI Agent analysis (BTST)...")
         ai_result = analyze_with_ai_agents(news_items, market_signals)
         
         result = analyze_news(
@@ -73,12 +73,12 @@ def analyze():
             global_market_changes=market_signals.get("global_market_changes"),
         )
         
-        # Directly override with Gemini AI Agent predictions & reasonings
+        # Directly override with AI Agent predictions & reasonings
         result["prediction"] = ai_result.get("prediction", result["prediction"])
         result["confidence"] = ai_result.get("confidence", result["confidence"])
         result["btst_bias"] = ai_result.get("btst_bias", result["btst_bias"])
         result["news_sentiment"] = ai_result.get("news_sentiment", result["news_sentiment"])
-        result["ai_agent_provider"] = ai_result.get("ai_agent_provider", "Google Gemini")
+        result["ai_agent_provider"] = ai_result.get("ai_agent_provider", "AI Agent")
         result["final_summary"] = ai_result.get("reasoning", result["final_summary"])
         result["nifty_heavyweight_impact"] = ai_result.get("nifty_heavyweight_impact", "")
         if ai_result.get("bullish_factors"):
@@ -87,7 +87,7 @@ def analyze():
             result["bearish_factors"] = ai_result["bearish_factors"]
 
         logger.info(
-            f"BTST Analysis (Gemini AI Agent) — Prediction: {result['prediction']}, "
+            f"BTST Analysis ({result['ai_agent_provider']}) — Prediction: {result['prediction']}, "
             f"Confidence: {result['confidence']}%"
         )
 

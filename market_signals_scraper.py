@@ -65,6 +65,10 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
     """
     import concurrent.futures
     import yfinance as yf
+    try:
+        yf.set_tz_cache_location("/tmp/py-yfinance")
+    except Exception:
+        pass
 
     market_changes = {
         "sp500": 0.0,
