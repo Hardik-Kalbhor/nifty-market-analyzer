@@ -155,6 +155,17 @@ async function startAnalysis() {
             body: JSON.stringify({ timestamp: Date.now() }),
         });
 
+        if (!response.ok) {
+            let errorMsg = `Server error (${response.status})`;
+            try {
+                const errJson = await response.json();
+                if (errJson && errJson.message) errorMsg = errJson.message;
+            } catch (e) {
+                // Fallback for HTML 500/502 error pages
+            }
+            throw new Error(errorMsg);
+        }
+
         const json = await response.json();
 
         if (json.status === "error") {
