@@ -61,8 +61,9 @@ def _fetch_nse_indices() -> dict[str, Any]:
 def _fetch_global_markets_and_gift() -> dict[str, Any]:
     """
     Fetch GIFT Nifty % change and overnight Global Market Indices
-    (S&P 500, NASDAQ, Dow Jones, Nikkei, Hang Seng, DAX) via yfinance.
+    (S&P 500, NASDAQ, Dow Jones, Nikkei, Hang Seng, DAX) in parallel via yfinance.
     """
+    import concurrent.futures
     import yfinance as yf
 
     market_changes = {
@@ -83,22 +84,32 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
         "^GDAXI": "dax",
     }
 
+    def fetch_single_ticker(symbol: str, key: str):
+        try:
+            t = yf.Ticker(symbol)
+            fast = t.fast_info
+            last = fast.last_price
+            prev = fast.previous_close
+            if last and prev and prev > 0:
+                return key, round(((last - prev) / prev) * 100, 2)
+        except Exception as item_err:
+            logger.warning(f"Error fetching ticker {symbol}: {item_err}")
+        return key, None
+
     try:
-        for symbol, key in tickers.items():
-            try:
-                t = yf.Ticker(symbol)
-                fast = t.fast_info
-                last = fast.last_price
-                prev = fast.previous_close
-                if last and prev:
-                    pct = round(((last - prev) / prev) * 100, 2)
-                    market_changes[key] = pct
-            except Exception as item_err:
-                logger.warning(f"Error fetching ticker {symbol}: {item_err}")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(fetch_single_ticker, sym, k) for sym, k in tickers.items()]
+            for future in concurrent.futures.as_completed(futures, timeout=6):
+                try:
+                    k, val = future.result()
+                    if val is not None:
+                        market_changes[k] = val
+                except Exception as e:
+                    logger.warning(f"Ticker thread error: {e}")
 
         logger.info(f"Global markets scraped successfully via yfinance: {market_changes}")
     except Exception as e:
-        logger.warning(f"Error fetching global market indices: {e}")
+        logger.warning(f"Error fetching global markets via yfinance: {e}")
 
     # GIFT Nifty proxy (derived from US S&P 500 / NASDAQ / Asia correlation)
     sp_pct = market_changes.get("sp500", 0.0)

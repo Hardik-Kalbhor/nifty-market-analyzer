@@ -86,17 +86,20 @@ def analyze_with_gemini(news_items: list[dict], market_signals: dict, api_key: s
         }
 
         # Try gemini-2.5-flash first, fallback to gemini-flash-latest
-        for model in ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-pro"]:
+        for model in ["gemini-2.5-flash", "gemini-flash-latest"]:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             headers = {"Content-Type": "application/json"}
             
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            if response.status_code == 200:
-                result_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-                logger.info(f"Successfully received Gemini AI Agent analysis response using '{model}'!")
-                return json.loads(result_text)
-            else:
-                logger.warning(f"Gemini API ('{model}') returned status {response.status_code}: {response.text[:150]}")
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=8)
+                if response.status_code == 200:
+                    result_text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    logger.info(f"Successfully received Gemini AI Agent analysis response using '{model}'!")
+                    return json.loads(result_text)
+                else:
+                    logger.warning(f"Gemini API ('{model}') returned status {response.status_code}: {response.text[:150]}")
+            except Exception as model_err:
+                logger.warning(f"Gemini model {model} timeout/error: {model_err}")
     except Exception as e:
         logger.error(f"Error in Gemini AI Agent analysis: {e}")
     return None
