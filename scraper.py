@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dataclasses import dataclass, field, asdict
 
+import concurrent.futures
 import requests
 import feedparser
 from bs4 import BeautifulSoup
@@ -297,7 +298,7 @@ def _format_date(published_parsed) -> str:
 
 
 def fetch_google_news_rss(query: str, category: str = "general", max_items: int = 8) -> list[NewsItem]:
-    """Fetch news from Google News RSS search."""
+    """Fetch news from Google News RSS search with strict timeout."""
     encoded_query = requests.utils.quote(query)
     url = (
         f"https://news.google.com/rss/search?"
@@ -306,10 +307,10 @@ def fetch_google_news_rss(query: str, category: str = "general", max_items: int 
 
     items: list[NewsItem] = []
     try:
-        feed = feedparser.parse(
-            url,
-            request_headers=HEADERS,
-        )
+        resp = requests.get(url, headers=HEADERS, timeout=6)
+        if resp.status_code != 200:
+            return []
+        feed = feedparser.parse(resp.content)
 
         for entry in feed.entries[:max_items]:
             if not _is_recent(entry.get("published_parsed"), hours=48):
@@ -344,16 +345,19 @@ def fetch_google_news_rss(query: str, category: str = "general", max_items: int 
                 )
             )
     except Exception as e:
-        logger.error(f"Error fetching Google News RSS for '{query}': {e}")
+        logger.warning(f"Error fetching Google News RSS for '{query}': {e}")
 
     return items
 
 
 def fetch_direct_rss(url: str, source_name: str, category: str = "general", max_items: int = 10) -> list[NewsItem]:
-    """Fetch news from a direct RSS feed URL (Livemint, ET, etc.)."""
+    """Fetch news from a direct RSS feed URL (Livemint, ET, etc.) with strict timeout."""
     items: list[NewsItem] = []
     try:
-        feed = feedparser.parse(url, request_headers=HEADERS)
+        resp = requests.get(url, headers=HEADERS, timeout=6)
+        if resp.status_code != 200:
+            return []
+        feed = feedparser.parse(resp.content)
 
         for entry in feed.entries[:max_items]:
             if not _is_recent(entry.get("published_parsed"), hours=48):
@@ -382,7 +386,7 @@ def fetch_direct_rss(url: str, source_name: str, category: str = "general", max_
                 )
             )
     except Exception as e:
-        logger.error(f"Error fetching RSS from '{url}': {e}")
+        logger.warning(f"Error fetching direct RSS from '{source_name}': {e}")
 
     return items
 
@@ -392,31 +396,52 @@ def fetch_direct_rss(url: str, source_name: str, category: str = "general", max_
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+def _normalize_title(title: str) -> str:
+    """Normalize a headline for fuzzy deduplication."""
+    title = title.lower()
+    title = re.sub(r"[^\w\s]", "", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    return title
+
+
 def _deduplicate(items: list[NewsItem]) -> list[NewsItem]:
-    """Remove near-duplicate headlines using simple word-overlap heuristic."""
-    seen_keys: set[str] = set()
+    """Remove duplicate articles based on normalized headlines and URLs."""
+    seen_titles: set[str] = set()
+    seen_links: set[str] = set()
     unique: list[NewsItem] = []
 
     for item in items:
-        # Normalise headline to a fingerprint
-        words = set(re.sub(r"[^a-z0-9\s]", "", item.headline.lower()).split())
-        # Remove very short words for better matching
-        sig_words = frozenset(w for w in words if len(w) > 3)
-        key = " ".join(sorted(sig_words))
+        norm_title = _normalize_title(item.headline)
+        # Check title similarity via word sets
+        title_words = set(norm_title.split())
 
-        # Check overlap with existing
+        # Exact link match
+        if item.link and item.link in seen_links:
+            continue
+
+        # Exact title match
+        if norm_title in seen_titles:
+            continue
+
+        # Fuzzy title match — check Jaccard similarity with existing
         is_dup = False
-        for seen in seen_keys:
-            seen_set = set(seen.split())
-            overlap = len(sig_words & seen_set)
-            union = len(sig_words | seen_set)
-            if union > 0 and overlap / union > 0.6:
+        for seen in seen_titles:
+            seen_words = set(seen.split())
+            if not seen_words or not title_words:
+                continue
+            intersection = len(title_words & seen_words)
+            union = len(title_words | seen_words)
+            if union > 0 and (intersection / union) > 0.65:
                 is_dup = True
                 break
 
-        if not is_dup and key:
-            seen_keys.add(key)
-            unique.append(item)
+        if is_dup:
+            continue
+
+        seen_titles.add(norm_title)
+        if item.link:
+            seen_links.add(item.link)
+        unique.append(item)
 
     return unique
 
@@ -428,36 +453,33 @@ def _deduplicate(items: list[NewsItem]) -> list[NewsItem]:
 
 def scrape_all_news() -> list[dict]:
     """
-    Master function: scrape all sources, deduplicate, classify sectors,
+    Master function: scrape all sources in parallel, deduplicate, classify sectors,
     and return a list of dicts ready for the analyzer.
     """
     all_items: list[NewsItem] = []
 
-    # 1. Google News RSS (multiple queries)
-    logger.info("Fetching Google News RSS feeds...")
-    for qinfo in GOOGLE_NEWS_RSS_QUERIES:
-        items = fetch_google_news_rss(
-            query=qinfo["query"],
-            category=qinfo["category"],
-            max_items=6,
-        )
-        all_items.extend(items)
-        # Small random delay to be polite
-        time.sleep(random.uniform(0.3, 0.8))
+    # Parallel scraping of Google News and Direct RSS feeds
+    logger.info("Fetching news feeds concurrently in parallel...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+        futures = []
+        for qinfo in GOOGLE_NEWS_RSS_QUERIES:
+            futures.append(
+                executor.submit(fetch_google_news_rss, qinfo["query"], qinfo["category"], 6)
+            )
+        for finfo in DIRECT_RSS_FEEDS:
+            futures.append(
+                executor.submit(fetch_direct_rss, finfo["url"], finfo["source"], finfo["category"], 8)
+            )
 
-    # 2. Direct RSS Feeds (Livemint, ET)
-    logger.info("Fetching direct RSS feeds (Livemint, ET)...")
-    for finfo in DIRECT_RSS_FEEDS:
-        items = fetch_direct_rss(
-            url=finfo["url"],
-            source_name=finfo["source"],
-            category=finfo["category"],
-            max_items=8,
-        )
-        all_items.extend(items)
-        time.sleep(random.uniform(0.2, 0.5))
+        for future in concurrent.futures.as_completed(futures, timeout=12):
+            try:
+                items = future.result()
+                if items:
+                    all_items.extend(items)
+            except Exception as fe:
+                logger.warning(f"Parallel RSS fetch error: {fe}")
 
-    # 3. Deduplicate
+    # Deduplicate
     logger.info(f"Total raw items: {len(all_items)}. Deduplicating...")
     unique_items = _deduplicate(all_items)
     logger.info(f"Unique items after dedup: {len(unique_items)}")
