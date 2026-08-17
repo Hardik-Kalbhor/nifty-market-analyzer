@@ -26,13 +26,22 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 
+@app.after_request
+def add_cors_headers(response):
+    """Add CORS and cache headers for smooth cross-device / mobile browser support."""
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return response
+
+
 @app.route("/")
 def index():
     """Serve the main dashboard page."""
     return render_template("index.html")
 
 
-@app.route("/api/analyze", methods=["POST"])
+@app.route("/api/analyze", methods=["POST", "GET"])
 def analyze():
     """
     Trigger full news scraping + sentiment analysis + market signals

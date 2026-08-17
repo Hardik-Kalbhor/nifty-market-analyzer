@@ -105,10 +105,16 @@ function stopLoadingMessages() {
  */
 function parseNewsDate(dateStr) {
     if (!dateStr) return new Date(0);
-    // Try native parse first (handles many formats)
-    const d = new Date(dateStr);
-    if (!isNaN(d.getTime())) return d;
-    // Fallback: return epoch so unparseable dates sort to end
+    try {
+        // Strip commas for strict WebKit/Safari Date parser compatibility
+        const cleaned = String(dateStr).replace(/,/g, "");
+        const d = new Date(cleaned);
+        if (!isNaN(d.getTime())) return d;
+    } catch (e) {}
+    try {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) return d;
+    } catch (e) {}
     return new Date(0);
 }
 
@@ -120,7 +126,9 @@ function sortNewsByDate(newsArray) {
     return [...newsArray].sort((a, b) => {
         const dateA = parseNewsDate(a.published_date);
         const dateB = parseNewsDate(b.published_date);
-        return dateB.getTime() - dateA.getTime(); // Descending: newest first
+        const timeA = dateA ? dateA.getTime() || 0 : 0;
+        const timeB = dateB ? dateB.getTime() || 0 : 0;
+        return timeB - timeA;
     });
 }
 
@@ -140,7 +148,11 @@ async function startAnalysis() {
     try {
         const response = await fetch("/api/analyze", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ timestamp: Date.now() }),
         });
 
         const json = await response.json();
@@ -162,7 +174,11 @@ async function startAnalysis() {
         renderDashboard(analysisData);
     } catch (err) {
         console.error("Analysis failed:", err);
-        renderError(err.message);
+        let msg = err.message || "Unknown error";
+        if (msg.includes("pattern") || msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Load failed")) {
+            msg = "Render free server cold-start or network timeout. Please tap 'Re-Analyse Market' again — the instance is now warm!";
+        }
+        renderError(msg);
     } finally {
         stopLoadingMessages();
         loadingOverlay.classList.remove("active");
