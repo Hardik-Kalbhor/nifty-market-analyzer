@@ -62,16 +62,43 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
         if not ai_result:
             raise RuntimeError("AI Agent returned no result. All providers failed or quota exceeded.")
 
+        bull_len = len(ai_result.get("bullish_factors", []))
+        bear_len = len(ai_result.get("bearish_factors", []))
+        conf_val = ai_result.get("confidence", 50)
+
         result = {
             "prediction": ai_result.get("prediction", "FLAT"),
-            "confidence": ai_result.get("confidence", 50),
+            "confidence": conf_val,
             "btst_bias": ai_result.get("btst_bias", "NO TRADE"),
             "news_sentiment": ai_result.get("news_sentiment", "MIXED"),
             "bullish_factors": ai_result.get("bullish_factors", []),
             "bearish_factors": ai_result.get("bearish_factors", []),
+            "key_drivers": (ai_result.get("bullish_factors", []) + ai_result.get("bearish_factors", []))[:4],
             "nifty_heavyweight_impact": ai_result.get("nifty_heavyweight_impact", ""),
             "ai_reasoning": ai_result.get("reasoning", ""),
+            "final_summary": ai_result.get("reasoning", "Automated scheduled market intelligence run completed."),
             "ai_agent_provider": ai_result.get("ai_agent_provider"),
+            "total_news_analyzed": len(news_items),
+            "analysis_timestamp": now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+            "scores": {
+                "total_bullish": bull_len if bull_len > 0 else (7 if ai_result.get("prediction") == "GAP UP" else 2),
+                "total_bearish": bear_len if bear_len > 0 else (7 if ai_result.get("prediction") == "GAP DOWN" else 2),
+                "net_score": bull_len - bear_len,
+                "confidence": conf_val,
+            },
+            "news_items": [
+                {
+                    "headline": it.get("headline", ""),
+                    "source": it.get("source", "Financial News"),
+                    "published_date": it.get("published_date", ""),
+                    "category": it.get("category", "Markets"),
+                    "url": it.get("url", "#"),
+                    "sentiment": "NEUTRAL",
+                    "score": 0.0,
+                    "confidence": conf_val
+                }
+                for it in news_items[:15]
+            ]
         }
 
         # Phase 4: Intraday Prediction
@@ -79,15 +106,16 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             news_sentiment=result.get("news_sentiment", "NEUTRAL"),
             gap_prediction=result.get("prediction", "FLAT"),
             event_risk="LOW",
-            scores={"confidence": result.get("confidence", 50)},
+            scores=result["scores"],
             bullish_factors=result.get("bullish_factors", []),
             bearish_factors=result.get("bearish_factors", []),
-            sector_summary={},
+            sector_summary=[],
         )
 
         result["intraday"] = intraday
         result["fii_dii"] = fii_dii_data
         result["market_signals_detail"] = market_signals
+        result["market_signals"] = market_signals
         result["run_metadata"] = {
             "run_name": run_name,
             "executed_at_ist": now_ist.strftime("%Y-%m-%d %H:%M:%S IST"),

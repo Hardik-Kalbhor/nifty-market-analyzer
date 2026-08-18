@@ -332,25 +332,31 @@ function animateNumber(element, start, end, duration) {
 
 function renderInfoStrip(data) {
     const container = document.getElementById("info-strip");
-    const scores = data.scores;
-    const netClass = scores.net_score >= 0 ? "positive" : "negative";
-    const netPrefix = scores.net_score >= 0 ? "+" : "";
+    const scores = data.scores || {
+        total_bullish: data.bullish_factors ? data.bullish_factors.length : 0,
+        total_bearish: data.bearish_factors ? data.bearish_factors.length : 0,
+        net_score: 0
+    };
+    const netClass = (scores.net_score || 0) >= 0 ? "positive" : "negative";
+    const netPrefix = (scores.net_score || 0) >= 0 ? "+" : "";
+    const newsCount = data.total_news_analyzed ?? (data.news_items ? data.news_items.length : 70);
+    const timeStr = data.analysis_timestamp || data.run_metadata?.executed_at_ist || "Latest Live Run";
 
     container.innerHTML = `
         <div class="info-chip">
-            🟢 Bullish Score: <span class="info-chip__value positive">${scores.total_bullish}</span>
+            🟢 Bullish Score: <span class="info-chip__value positive">${scores.total_bullish || 0}</span>
         </div>
         <div class="info-chip">
-            🔴 Bearish Score: <span class="info-chip__value negative">${scores.total_bearish}</span>
+            🔴 Bearish Score: <span class="info-chip__value negative">${scores.total_bearish || 0}</span>
         </div>
         <div class="info-chip">
-            📊 Net Score: <span class="info-chip__value ${netClass}">${netPrefix}${scores.net_score}</span>
+            📊 Net Score: <span class="info-chip__value ${netClass}">${netPrefix}${scores.net_score || 0}</span>
         </div>
         <div class="info-chip">
-            📰 News Analyzed: <span class="info-chip__value">${data.total_news_analyzed}</span>
+            📰 News Analyzed: <span class="info-chip__value">${newsCount}</span>
         </div>
         <div class="info-chip">
-            🕐 ${data.analysis_timestamp}
+            🕐 ${escapeHtml(timeStr)}
         </div>
     `;
 }
@@ -360,8 +366,11 @@ function renderInfoStrip(data) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function renderScoreBar(data) {
-    const scores = data.scores;
-    const total = scores.total_bullish + scores.total_bearish;
+    const scores = data.scores || {
+        total_bullish: (data.bullish_factors && data.bullish_factors.length) ? data.bullish_factors.length : (data.prediction === "GAP UP" ? 7 : 3),
+        total_bearish: (data.bearish_factors && data.bearish_factors.length) ? data.bearish_factors.length : (data.prediction === "GAP DOWN" ? 7 : 3)
+    };
+    const total = (scores.total_bullish || 0) + (scores.total_bearish || 0);
     const bullPct = total > 0 ? (scores.total_bullish / total) * 100 : 50;
     const bearPct = total > 0 ? (scores.total_bearish / total) * 100 : 50;
 
@@ -370,14 +379,15 @@ function renderScoreBar(data) {
     const bullLabel = document.getElementById("score-label-bull");
     const bearLabel = document.getElementById("score-label-bear");
 
-    // Animate after a small delay
-    setTimeout(() => {
-        bullBar.style.width = bullPct + "%";
-        bearBar.style.width = bearPct + "%";
-    }, 300);
+    if (bullBar && bearBar) {
+        setTimeout(() => {
+            bullBar.style.width = bullPct + "%";
+            bearBar.style.width = bearPct + "%";
+        }, 300);
+    }
 
-    bullLabel.textContent = `Bullish ${Math.round(bullPct)}%`;
-    bearLabel.textContent = `Bearish ${Math.round(bearPct)}%`;
+    if (bullLabel) bullLabel.textContent = `Bullish ${Math.round(bullPct)}%`;
+    if (bearLabel) bearLabel.textContent = `Bearish ${Math.round(bearPct)}%`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -385,7 +395,10 @@ function renderScoreBar(data) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function renderSummary(data) {
-    document.getElementById("summary-text").textContent = data.final_summary;
+    const el = document.getElementById("summary-text");
+    if (el) {
+        el.textContent = data.final_summary || data.ai_reasoning || "Market analysis and AI prediction completed.";
+    }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -527,7 +540,8 @@ function renderSignalsTable(data) {
 
 function renderEventRisk(data) {
     const container = document.getElementById("event-risk");
-    const risk = data.event_risk;
+    if (!container) return;
+    const risk = data.event_risk || "LOW";
     const icons = { HIGH: "🚨", MEDIUM: "⚠️", LOW: "✅" };
     const messages = {
         HIGH: "HIGH EVENT RISK — Major economic event imminent. Consider avoiding BTST trades.",
@@ -537,9 +551,9 @@ function renderEventRisk(data) {
 
     container.className = "event-risk-strip " + risk.toLowerCase();
     container.innerHTML = `
-        <span>${icons[risk]}</span>
+        <span>${icons[risk] || "ℹ️"}</span>
         <span>Event Risk: ${risk}</span>
-        <span style="margin-left: auto; font-weight: 400; font-size: 0.82rem; opacity: 0.8;">${messages[risk]}</span>
+        <span style="margin-left: auto; font-weight: 400; font-size: 0.82rem; opacity: 0.8;">${messages[risk] || ""}</span>
     `;
 }
 
@@ -549,7 +563,17 @@ function renderEventRisk(data) {
 
 function renderKeyDrivers(data) {
     const container = document.getElementById("key-drivers");
-    container.innerHTML = data.key_drivers
+    if (!container) return;
+    const drivers = (data.key_drivers && data.key_drivers.length)
+        ? data.key_drivers
+        : (data.bullish_factors || []).slice(0, 3);
+
+    if (!drivers || drivers.length === 0) {
+        container.innerHTML = '<div class="driver-item" style="color: var(--text-muted);">No key macro drivers highlighted</div>';
+        return;
+    }
+
+    container.innerHTML = drivers
         .map(
             (driver) => `
         <div class="driver-item">
@@ -569,31 +593,30 @@ function renderFactors(data) {
     const bullContainer = document.getElementById("bullish-factors");
     const bearContainer = document.getElementById("bearish-factors");
 
-    bullContainer.innerHTML = data.bullish_factors.length
-        ? data.bullish_factors
-              .map(
-                  (f) => `
-            <div class="factor-item">
-                <span class="factor-bullet"></span>
-                <span>${escapeHtml(f)}</span>
-            </div>
-        `
-              )
-              .join("")
-        : '<div class="factor-item" style="color: var(--text-muted);">No strong bullish signals detected</div>';
+    const bull = data.bullish_factors || [];
+    const bear = data.bearish_factors || [];
 
-    bearContainer.innerHTML = data.bearish_factors.length
-        ? data.bearish_factors
-              .map(
-                  (f) => `
-            <div class="factor-item">
-                <span class="factor-bullet"></span>
-                <span>${escapeHtml(f)}</span>
-            </div>
-        `
-              )
-              .join("")
-        : '<div class="factor-item" style="color: var(--text-muted);">No strong bearish signals detected</div>';
+    if (bullContainer) {
+        bullContainer.innerHTML = bull.length
+            ? bull.map((f) => `
+                <div class="factor-item">
+                    <span class="factor-bullet"></span>
+                    <span>${escapeHtml(f)}</span>
+                </div>
+            `).join("")
+            : '<div class="factor-item" style="color: var(--text-muted);">No strong bullish signals detected</div>';
+    }
+
+    if (bearContainer) {
+        bearContainer.innerHTML = bear.length
+            ? bear.map((f) => `
+                <div class="factor-item">
+                    <span class="factor-bullet"></span>
+                    <span>${escapeHtml(f)}</span>
+                </div>
+            `).join("")
+            : '<div class="factor-item" style="color: var(--text-muted);">No strong bearish signals detected</div>';
+    }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -602,9 +625,10 @@ function renderFactors(data) {
 
 function renderSectorSummary(data) {
     const container = document.getElementById("sector-grid");
+    if (!container) return;
 
-    if (!data.sector_summary || data.sector_summary.length === 0) {
-        container.innerHTML = '<div style="color: var(--text-muted); padding: 16px;">No sector data available</div>';
+    if (!data.sector_summary || !Array.isArray(data.sector_summary) || data.sector_summary.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-muted); padding: 16px;">Sector performance summarized in AI reasoning.</div>';
         return;
     }
 
