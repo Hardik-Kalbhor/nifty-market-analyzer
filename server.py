@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# Start AutoScheduler at module load time so it works under both
+# `python server.py` (development) and Gunicorn (production on Render).
+try:
+    from auto_scheduler import init_scheduler
+    import os
+    # Avoid double-starting in Gunicorn pre-fork model by using an env flag
+    if not os.environ.get("SCHEDULER_STARTED"):
+        os.environ["SCHEDULER_STARTED"] = "1"
+        init_scheduler()
+except Exception as _sched_err:
+    import logging as _log
+    _log.getLogger(__name__).warning(f"AutoScheduler could not start: {_sched_err}")
+
 
 @app.after_request
 def add_cors_headers(response):
@@ -269,11 +282,5 @@ if __name__ == "__main__":
     print("  📊 BTST + Intraday Intelligence")
     print("  🌐 Open: http://localhost:5050")
     print("━" * 60 + "\n")
-
-    try:
-        from auto_scheduler import init_scheduler
-        init_scheduler()
-    except Exception as sched_err:
-        logger.warning(f"Could not start AutoScheduler: {sched_err}")
 
     app.run(debug=False, host="0.0.0.0", port=5050)
