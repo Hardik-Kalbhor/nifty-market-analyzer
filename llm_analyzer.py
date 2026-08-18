@@ -110,7 +110,10 @@ def _build_user_content(news_items: list[dict], market_signals: dict) -> str:
     fo_context = _get_fo_expiry_context()
 
     spot_line = f"Nifty 50 Spot: {nifty_spot} ({nifty_pct:+.2f}%)" if nifty_spot else "Nifty 50 Spot: Market closed / unavailable"
-    oi_line = f"Max Pain: {max_pain} | Top Call OI (Resistance): {top_call} | Top Put OI (Support): {top_put}" if max_pain else "Option Chain OI: Market closed / unavailable"
+    if max_pain:
+        oi_line = f"Max Pain: {max_pain} | Top Call OI (Resistance): {top_call} | Top Put OI (Support): {top_put}"
+    else:
+        oi_line = "PCR/Max Pain/OI Strikes: Unavailable (NSE blocks automated server requests — use PCR from news/context if mentioned)"
 
     return f"""
     NIFTY 50 Market Input Data:
