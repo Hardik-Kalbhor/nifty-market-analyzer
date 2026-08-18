@@ -8,7 +8,8 @@ import os
 import json
 import logging
 import traceback
-from flask import Flask, render_template, jsonify
+from datetime import datetime
+from flask import Flask, render_template, jsonify, request
 
 from scraper import scrape_all_news
 from analyzer import analyze_news
@@ -274,6 +275,64 @@ def get_history_detail(filename):
         return jsonify({"status": "success", "data": data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def _log_exit_audit(entry: dict):
+    """Append evaluation record to exit_evaluations.jsonl."""
+    try:
+        hdir = get_history_dir()
+        log_file = os.path.join(hdir, "exit_evaluations.jsonl")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.debug(f"Audit log error: {e}")
+
+
+@app.route("/api/exit-advisor", methods=["POST"])
+def exit_advisor():
+    """
+    Evaluates live open positions (BTST / Intraday) with Fast-Path (0-10ms)
+    and Deep AI Reasoning (≤1.5s).
+    """
+    import time
+    start_t = time.time()
+    try:
+        payload = request.get_json(force=True) or {}
+        
+        # 1. Fetch live signals
+        market_signals = fetch_all_market_signals()
+        
+        # 2. Scrape top news items
+        try:
+            news_items = scrape_all_news()
+        except Exception as e:
+            logger.warning(f"News scrape failed for exit advisor: {e}")
+            news_items = []
+
+        # 3. Run evaluation (Fast-Path -> Deep AI -> Deterministic Fallback)
+        from exit_analyzer import evaluate_exit_with_ai
+        result = evaluate_exit_with_ai(payload, market_signals, news_items)
+        
+        elapsed_ms = round((time.time() - start_t) * 1000, 1)
+        result["latency_ms"] = elapsed_ms
+        result["timestamp_ist"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 4. Audit Log
+        _log_exit_audit({
+            "timestamp": result["timestamp_ist"],
+            "position": payload,
+            "live_spot": market_signals.get("nifty_spot"),
+            "verdict": result.get("verdict"),
+            "engine": result.get("engine"),
+            "latency_ms": elapsed_ms
+        })
+
+        return jsonify({"status": "success", "data": result})
+
+    except Exception as e:
+        logger.error(f"Exit Advisor error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 if __name__ == "__main__":

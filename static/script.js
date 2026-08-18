@@ -1146,3 +1146,216 @@ document.addEventListener("click", (e) => {
 
 // Expose loadHistorySnapshot globally
 window.loadHistorySnapshot = loadHistorySnapshot;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎯 Live Position Exit Advisor Client Logic
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let exitAutoPollTimer = null;
+let lastExitVerdict = null;
+
+function playExitChime(verdict) {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (verdict.includes("EMERGENCY") || verdict.includes("FULL_EXIT")) {
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // High pitch alarm
+            osc.type = "sawtooth";
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        } else if (verdict.includes("PARTIAL_BOOK")) {
+            osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5 cheerful chime
+            osc.type = "sine";
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.35);
+        }
+    } catch (e) {
+        console.debug("Audio chime unsupported or blocked:", e);
+    }
+}
+
+function initExitAdvisor() {
+    const form = document.getElementById("exit-advisor-form");
+    const presetBtn = document.getElementById("btn-preset-btst");
+    const autoPollToggle = document.getElementById("auto-monitor-toggle");
+
+    if (presetBtn) {
+        presetBtn.addEventListener("click", () => {
+            // Read latest analyzed data from global window.lastAnalysisData if available
+            const bias = document.getElementById("btst-badge")?.textContent?.trim() || "";
+            const sideSelect = document.getElementById("position-side");
+            const tradeTypeSelect = document.getElementById("trade-type");
+            const entrySpotInput = document.getElementById("entry-spot");
+
+            if (tradeTypeSelect) tradeTypeSelect.value = "BTST";
+            if (bias.includes("BUY CE") && sideSelect) sideSelect.value = "BUY_CE";
+            else if (bias.includes("BUY PE") && sideSelect) sideSelect.value = "BUY_PE";
+
+            // If spot is displayed on info strip, grab it
+            const spotEl = document.querySelector("#info-strip .info-item:first-child .info-item__value");
+            if (spotEl && entrySpotInput) {
+                const cleanSpot = spotEl.textContent.replace(/[^0-9.]/g, "");
+                if (cleanSpot) entrySpotInput.value = cleanSpot;
+            }
+
+            const strikeInput = document.getElementById("strike-name");
+            if (strikeInput && !strikeInput.value && entrySpotInput?.value) {
+                const rounded = Math.round(parseFloat(entrySpotInput.value) / 50) * 50;
+                strikeInput.value = `${rounded} ${sideSelect.value === "BUY_PE" ? "PE" : "CE"}`;
+            }
+
+            const entryTimeInput = document.getElementById("entry-time");
+            if (entryTimeInput) entryTimeInput.value = "15:15 IST (Yesterday)";
+        });
+    }
+
+    if (form) {
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            await evaluateLiveExit(true);
+        });
+    }
+
+    if (autoPollToggle) {
+        autoPollToggle.addEventListener("change", () => {
+            if (autoPollToggle.checked) {
+                console.log("⏱️ Auto-monitor enabled: polling every 30s");
+                evaluateLiveExit(false);
+                exitAutoPollTimer = setInterval(() => evaluateLiveExit(false), 30000);
+            } else {
+                console.log("⏱️ Auto-monitor disabled");
+                if (exitAutoPollTimer) clearInterval(exitAutoPollTimer);
+                exitAutoPollTimer = null;
+            }
+        });
+    }
+}
+
+async function evaluateLiveExit(showLoadingState = true) {
+    const submitBtn = document.getElementById("btn-evaluate-exit");
+    const placeholder = document.getElementById("exit-result-placeholder");
+    const content = document.getElementById("exit-result-content");
+
+    const payload = {
+        trade_type: document.getElementById("trade-type")?.value || "INTRADAY",
+        position_side: document.getElementById("position-side")?.value || "BUY_CE",
+        strike: document.getElementById("strike-name")?.value || "",
+        entry_spot: parseFloat(document.getElementById("entry-spot")?.value) || 0,
+        entry_premium: parseFloat(document.getElementById("entry-premium")?.value) || 0,
+        current_premium: parseFloat(document.getElementById("current-premium")?.value) || 0,
+        risk_profile: document.getElementById("risk-profile")?.value || "BALANCED",
+        entry_time: document.getElementById("entry-time")?.value || ""
+    };
+
+    if (showLoadingState && submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span>⏳</span><span>Evaluating Exit Signals...</span>`;
+    }
+
+    try {
+        const res = await fetch("/api/exit-advisor", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+
+        if (json.status === "success" && json.data) {
+            renderExitAdvisorResult(json.data);
+            if (placeholder) placeholder.style.display = "none";
+            if (content) content.style.display = "block";
+
+            // Trigger chime if verdict changed to actionable exit
+            if (lastExitVerdict !== json.data.verdict) {
+                lastExitVerdict = json.data.verdict;
+                if (!json.data.verdict.includes("HOLD")) {
+                    playExitChime(json.data.verdict);
+                }
+            }
+        } else {
+            alert("Exit evaluation failed: " + (json.message || "Unknown error"));
+        }
+    } catch (e) {
+        console.error("Exit advisor network error:", e);
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span>🎯</span><span>Evaluate Exit Signal</span>`;
+        }
+    }
+}
+
+function renderExitAdvisorResult(data) {
+    const verdictTag = document.getElementById("exit-verdict-tag");
+    const engineBadge = document.getElementById("exit-engine-badge");
+    const confVal = document.getElementById("exit-conf-val");
+    const actionBox = document.getElementById("exit-action-box");
+    const actionText = document.getElementById("exit-action-text");
+    const metricSl = document.getElementById("exit-metric-sl");
+    const metricHealth = document.getElementById("exit-metric-health");
+    const metricLatency = document.getElementById("exit-metric-latency");
+    const hwText = document.getElementById("exit-hw-text");
+    const reasoningText = document.getElementById("exit-reasoning-text");
+
+    const verdict = data.verdict || "HOLD_AND_RIDE";
+    const cleanVerdict = verdict.replace(/_/g, " ");
+
+    if (verdictTag) {
+        verdictTag.textContent = cleanVerdict;
+        verdictTag.className = "exit-verdict-tag " + verdict.toLowerCase();
+    }
+
+    if (engineBadge) {
+        engineBadge.textContent = data.engine || "AI Evaluator";
+        if (data.is_fast_path) {
+            engineBadge.textContent = "⚡ Fast-Path Safety Engine (0 ms)";
+        }
+    }
+
+    if (confVal) confVal.textContent = (data.confidence || 75) + "%";
+
+    if (actionBox) {
+        actionBox.className = "exit-action-box " + verdict.toLowerCase();
+    }
+    if (actionText) actionText.textContent = data.action || "--";
+
+    if (metricSl) {
+        metricSl.textContent = data.trailing_sl ? `₹${data.trailing_sl.toLocaleString("en-IN")}` : "Cost (Breakeven)";
+    }
+
+    if (metricHealth) {
+        const health = data.thesis_status || (verdict.includes("HOLD") ? "INTACT" : verdict.includes("PARTIAL") ? "TARGET MET" : "INVALIDATED");
+        metricHealth.textContent = health;
+        metricHealth.className = "exit-metric-value " + (health === "INTACT" ? "bullish" : health === "TARGET MET" ? "bullish" : "bearish");
+    }
+
+    if (metricLatency) {
+        metricLatency.textContent = data.latency_ms ? `${data.latency_ms} ms` : "Instant";
+    }
+
+    if (hwText) {
+        if (data.heavyweight_pulse) {
+            hwText.textContent = data.heavyweight_pulse;
+        } else if (data.heavyweights) {
+            const items = Object.values(data.heavyweights).map(h => `${h.name}: ${h.change_pct > 0 ? '+' : ''}${h.change_pct}%`);
+            hwText.textContent = items.join(" | ");
+        } else {
+            hwText.textContent = "Tracking top 5 index constituents.";
+        }
+    }
+
+    if (reasoningText) {
+        reasoningText.textContent = data.reasoning || "Evaluation based on live market conditions.";
+    }
+}
+
+// Initialize on DOM load
+document.addEventListener("DOMContentLoaded", () => {
+    initExitAdvisor();
+});

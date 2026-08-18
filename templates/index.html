@@ -6,7 +6,7 @@
     <meta name="description" content="NIFTY 50 Market Analysis Dashboard — BTST + Intraday prediction with news sentiment analysis, sector classification, and GAP UP / GAP DOWN / FLAT forecast.">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=8.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=12.0">
 </head>
 <body>
 
@@ -78,6 +78,11 @@
                 <span class="tab-btn__icon">⚡</span>
                 <span>Intraday Prediction</span>
                 <span class="tab-btn__hint">Today's Movement</span>
+            </button>
+            <button class="tab-btn" data-tab="exit-advisor" id="tab-exit-advisor">
+                <span class="tab-btn__icon">🎯</span>
+                <span>Live Exit Advisor</span>
+                <span class="tab-btn__hint">Position Management</span>
             </button>
             <button class="tab-btn" data-tab="history" id="tab-history">
                 <span class="tab-btn__icon">📜</span>
@@ -354,6 +359,158 @@
         </div>
 
         <!-- ════════════════════════════════════════════ -->
+        <!-- TAB: LIVE EXIT ADVISOR                      -->
+        <!-- ════════════════════════════════════════════ -->
+        <div class="tab-content" id="content-exit-advisor">
+            
+            <div class="exit-advisor-layout">
+                <!-- Left: Trade Input Form -->
+                <div class="card exit-form-card animate-in">
+                    <div class="section-title">
+                        <span class="section-title__icon">📍</span>
+                        Live Open Position Parameters
+                    </div>
+                    
+                    <div class="exit-preset-strip">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-preset-btst">
+                            ⚡ Auto-Fill From Today's BTST Signal
+                        </button>
+                    </div>
+
+                    <form id="exit-advisor-form" class="exit-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="trade-type">Trade Horizon</label>
+                                <select id="trade-type" class="form-control">
+                                    <option value="BTST">BTST (Overnight Holding)</option>
+                                    <option value="INTRADAY" selected>Intraday (Day Trade)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="position-side">Position Side</label>
+                                <select id="position-side" class="form-control">
+                                    <option value="BUY_CE" selected>BUY CE (Long Call)</option>
+                                    <option value="BUY_PE">BUY PE (Long Put)</option>
+                                    <option value="LONG_FUTURES">LONG Futures</option>
+                                    <option value="SHORT_FUTURES">SHORT Futures</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="strike-name">Strike / Contract</label>
+                                <input type="text" id="strike-name" class="form-control" placeholder="e.g. 24200 CE">
+                            </div>
+                            <div class="form-group">
+                                <label for="entry-spot">Entry NIFTY Spot</label>
+                                <input type="number" step="0.1" id="entry-spot" class="form-control" placeholder="e.g. 24180">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="entry-premium">Entry Option Premium (₹)</label>
+                                <input type="number" step="0.1" id="entry-premium" class="form-control" placeholder="e.g. 110.0">
+                            </div>
+                            <div class="form-group">
+                                <label for="current-premium">Current Option Premium (₹)</label>
+                                <input type="number" step="0.1" id="current-premium" class="form-control" placeholder="e.g. 135.0 (Optional)">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="risk-profile">Risk Appetite</label>
+                                <select id="risk-profile" class="form-control">
+                                    <option value="CONSERVATIVE">Conservative (Quick profit lock)</option>
+                                    <option value="BALANCED" selected>Balanced (Standard 1:2 R:R)</option>
+                                    <option value="TREND_RIDER">Trend Rider (Wide trailing SL)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="entry-time">Entry Time</label>
+                                <input type="text" id="entry-time" class="form-control" placeholder="e.g. 09:30 IST">
+                            </div>
+                        </div>
+
+                        <div class="exit-form-actions">
+                            <button type="submit" class="btn btn-primary" id="btn-evaluate-exit" style="flex: 1;">
+                                <span>🎯</span>
+                                <span>Evaluate Exit Signal</span>
+                            </button>
+                            <label class="auto-poll-toggle" title="Auto re-evaluate every 30 seconds">
+                                <input type="checkbox" id="auto-monitor-toggle">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Auto-Monitor (30s)</span>
+                            </label>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Right: AI Evaluation Result Card -->
+                <div class="card exit-result-card animate-in" id="exit-result-card">
+                    <div id="exit-result-placeholder" class="exit-placeholder">
+                        <span class="exit-placeholder__icon">🧭</span>
+                        <div class="exit-placeholder__text">Enter your open trade parameters on the left and click <strong>"Evaluate Exit Signal"</strong> to get instant AI + Fast-Path risk guidance.</div>
+                    </div>
+
+                    <div id="exit-result-content" style="display: none;">
+                        <!-- Verdict Header -->
+                        <div class="exit-verdict-header">
+                            <div>
+                                <div class="exit-verdict-tag" id="exit-verdict-tag">TRAIL STOP LOSS</div>
+                                <div class="exit-engine-badge" id="exit-engine-badge">Groq AI (openai/gpt-oss-120b)</div>
+                            </div>
+                            <div class="exit-confidence-pill">
+                                <span id="exit-conf-val">85%</span> Confidence
+                            </div>
+                        </div>
+
+                        <!-- Action Plan Alert -->
+                        <div class="exit-action-box" id="exit-action-box">
+                            <div class="exit-action-title">🚨 Action Plan</div>
+                            <div class="exit-action-text" id="exit-action-text">--</div>
+                        </div>
+
+                        <!-- Metrics Grid -->
+                        <div class="exit-metrics-grid">
+                            <div class="exit-metric-item">
+                                <div class="exit-metric-label">Trailing Stop (Spot)</div>
+                                <div class="exit-metric-value" id="exit-metric-sl">--</div>
+                            </div>
+                            <div class="exit-metric-item">
+                                <div class="exit-metric-label">Thesis Health</div>
+                                <div class="exit-metric-value" id="exit-metric-health">INTACT</div>
+                            </div>
+                            <div class="exit-metric-item">
+                                <div class="exit-metric-label">Evaluation Speed</div>
+                                <div class="exit-metric-value" id="exit-metric-latency">0 ms</div>
+                            </div>
+                        </div>
+
+                        <!-- Heavyweight Pulse -->
+                        <div class="exit-hw-pulse" id="exit-hw-pulse">
+                            <strong>🏛️ Heavyweight Alignment:</strong> <span id="exit-hw-text">Loading...</span>
+                        </div>
+
+                        <!-- AI Reasoning -->
+                        <div class="exit-reasoning-box">
+                            <div class="exit-reasoning-title">💡 Deep AI Reasoning</div>
+                            <div class="exit-reasoning-text" id="exit-reasoning-text">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Disclaimer Notice -->
+            <div class="exit-disclaimer-notice">
+                ⚖️ <strong>Analytical Support Only:</strong> This live exit tool performs quantitative sentiment & microstructure analysis for educational purposes. It does not constitute SEBI-registered financial or trading advice.
+            </div>
+
+        </div>
+
+        <!-- ════════════════════════════════════════════ -->
         <!-- TAB: ANALYSIS HISTORY                       -->
         <!-- ════════════════════════════════════════════ -->
         <div class="tab-content" id="content-history">
@@ -410,7 +567,7 @@
 
 </div>
 
-<script src="{{ url_for('static', filename='script.js') }}?v=11.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=12.0"></script>
 
 </body>
 </html>
