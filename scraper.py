@@ -471,13 +471,21 @@ def scrape_all_news() -> list[dict]:
                 executor.submit(fetch_direct_rss, finfo["url"], finfo["source"], finfo["category"], 8)
             )
 
-        for future in concurrent.futures.as_completed(futures, timeout=12):
+
+        done, not_done = concurrent.futures.wait(futures, timeout=18)
+        if not_done:
+            logger.warning(f"{len(not_done)} news feed(s) did not finish in time — skipping them.")
+            for f in not_done:
+                f.cancel()
+
+        for future in done:
             try:
                 items = future.result()
                 if items:
                     all_items.extend(items)
             except Exception as fe:
                 logger.warning(f"Parallel RSS fetch error: {fe}")
+
 
     # Deduplicate
     logger.info(f"Total raw items: {len(all_items)}. Deduplicating...")
