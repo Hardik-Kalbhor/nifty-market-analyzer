@@ -29,3 +29,6 @@ desktop.ini
 
 # Logs
 *.log
+
+# History (ephemeral /tmp data — not for version control)
+history/

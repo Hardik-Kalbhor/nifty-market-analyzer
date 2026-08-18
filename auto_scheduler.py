@@ -10,7 +10,6 @@ from scraper import scrape_all_news
 from fii_dii_scraper import fetch_fii_dii_data
 from market_signals_scraper import fetch_all_market_signals
 from llm_analyzer import analyze_with_ai_agents
-from analyzer import analyze_news
 from intraday_analyzer import generate_intraday_prediction
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -25,9 +24,26 @@ except (OSError, PermissionError):
     os.makedirs(HISTORY_DIR, exist_ok=True)
 
 
+def _cleanup_old_history(max_days: int = 2):
+    """Delete analysis JSON files older than max_days from the history directory."""
+    now = datetime.now(TIMEZONE)
+    try:
+        for fname in os.listdir(HISTORY_DIR):
+            if not fname.startswith("analysis_") or not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(HISTORY_DIR, fname)
+            age_days = (now.timestamp() - os.path.getmtime(fpath)) / 86400
+            if age_days > max_days:
+                os.remove(fpath)
+                logger.info(f"🗑️ Removed old history file: {fname} (age: {age_days:.1f} days)")
+    except Exception as e:
+        logger.warning(f"History cleanup error: {e}")
+
+
 def run_automated_analysis(run_name: str = "Scheduled Run"):
     """
     Executes the full automated analysis pipeline and saves timestamped report history.
+    Strictly requires AI agent response — no rule-based fallback.
     """
     now_ist = datetime.now(TIMEZONE)
     timestamp_str = now_ist.strftime("%Y-%m-%d_%H%M")
@@ -41,47 +57,32 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
         fii_dii_data = fetch_fii_dii_data()
         market_signals = fetch_all_market_signals()
 
-        # Phase 3: AI Agent / Rule Engine Analysis
+        # Phase 3: AI Agent Analysis (strict — no rule-based fallback)
         ai_result = analyze_with_ai_agents(news_items, market_signals)
+        if not ai_result:
+            raise RuntimeError("AI Agent returned no result. All providers failed or quota exceeded.")
 
-        if ai_result:
-            result = analyze_news(
-                news_items=news_items,
-                gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
-                india_vix=market_signals.get("india_vix"),
-                india_vix_change_pct=market_signals.get("india_vix_change_pct"),
-                pcr=market_signals.get("pcr"),
-                global_market_changes=market_signals.get("global_market_changes"),
-            )
-            result["prediction"] = ai_result.get("prediction", result["prediction"])
-            result["confidence"] = ai_result.get("confidence", result["confidence"])
-            result["btst_bias"] = ai_result.get("btst_bias", result["btst_bias"])
-            result["news_sentiment"] = ai_result.get("news_sentiment", result["news_sentiment"])
-            result["ai_agent_provider"] = ai_result.get("ai_agent_provider")
-            result["ai_reasoning"] = ai_result.get("reasoning")
-            if ai_result.get("bullish_factors"):
-                result["bullish_factors"] = ai_result["bullish_factors"]
-            if ai_result.get("bearish_factors"):
-                result["bearish_factors"] = ai_result["bearish_factors"]
-        else:
-            result = analyze_news(
-                news_items=news_items,
-                gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
-                india_vix=market_signals.get("india_vix"),
-                india_vix_change_pct=market_signals.get("india_vix_change_pct"),
-                pcr=market_signals.get("pcr"),
-                global_market_changes=market_signals.get("global_market_changes"),
-            )
+        result = {
+            "prediction": ai_result.get("prediction", "FLAT"),
+            "confidence": ai_result.get("confidence", 50),
+            "btst_bias": ai_result.get("btst_bias", "NO TRADE"),
+            "news_sentiment": ai_result.get("news_sentiment", "MIXED"),
+            "bullish_factors": ai_result.get("bullish_factors", []),
+            "bearish_factors": ai_result.get("bearish_factors", []),
+            "nifty_heavyweight_impact": ai_result.get("nifty_heavyweight_impact", ""),
+            "ai_reasoning": ai_result.get("reasoning", ""),
+            "ai_agent_provider": ai_result.get("ai_agent_provider"),
+        }
 
         # Phase 4: Intraday Prediction
         intraday = generate_intraday_prediction(
             news_sentiment=result.get("news_sentiment", "NEUTRAL"),
             gap_prediction=result.get("prediction", "FLAT"),
-            event_risk=result.get("event_risk", "LOW"),
-            scores=result.get("scores", {"confidence": result.get("confidence", 50)}),
+            event_risk="LOW",
+            scores={"confidence": result.get("confidence", 50)},
             bullish_factors=result.get("bullish_factors", []),
             bearish_factors=result.get("bearish_factors", []),
-            sector_summary=result.get("sector_summary", {}),
+            sector_summary={},
         )
 
         result["intraday"] = intraday
@@ -92,7 +93,7 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             "executed_at_ist": now_ist.strftime("%Y-%m-%d %H:%M:%S IST"),
         }
 
-        # Save to history/ directory
+        # Save to history directory
         filepath = os.path.join(HISTORY_DIR, f"analysis_{timestamp_str}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
@@ -101,13 +102,18 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
         with open(latest_filepath, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
-        conf = result.get("confidence", result.get("scores", {}).get("confidence", 50))
+        conf = result.get("confidence", 50)
         logger.info(f"✅ Automated Run [{run_name}] Completed! Prediction: {result['prediction']} ({conf}%). History saved to {filepath}")
+
+        # Cleanup files older than 2 days
+        _cleanup_old_history(max_days=2)
+
         return result
 
     except Exception as e:
         logger.error(f"❌ Automated Run [{run_name}] failed: {e}")
         return None
+
 
 
 def init_scheduler():

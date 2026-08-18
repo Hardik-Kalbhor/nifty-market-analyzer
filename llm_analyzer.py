@@ -47,6 +47,8 @@ CRITICAL EVALUATION RULES:
 3. NIFTY Stock Weightage: News on heavyweights (HDFC Bank 11.5%, Reliance 9.2%, ICICI 8.1%, Infosys 5.8%, TCS 4.2%) has massive impact. Small-cap news has ZERO Nifty index impact.
 4. Numerical Scale: Differentiate between a 2% minor profit move vs a 350% explosive profit beat.
 5. Signal Confluence: If signals conflict (e.g. Bearish news vs Bullish FII buying), force NO TRADE.
+6. F&O Expiry Day Rule: On weekly/monthly F&O expiry, option writers defend Max Pain. Bias FLAT or against the prevailing trend unless a very strong catalyst exists. Reduce confidence by 10%.
+7. OI Levels: Top Call OI strike = strong resistance. Top Put OI strike = strong support. Max Pain = expected pin zone.
 
 Return ONLY a valid JSON object in this exact schema:
 {
@@ -60,6 +62,77 @@ Return ONLY a valid JSON object in this exact schema:
   "reasoning": "brief 2-sentence explanation of the prediction"
 }
 """
+
+
+def _get_fo_expiry_context() -> str:
+    """
+    Compute F&O expiry context for today (IST).
+    Weekly expiry = every Thursday. Monthly expiry = last Thursday of the month.
+    """
+    from datetime import date, timedelta
+    import calendar
+    today = datetime.now(pytz.timezone("Asia/Kolkata")).date() if "pytz" in dir() else date.today()
+
+    # Find the last Thursday of this month
+    year, month = today.year, today.month
+    last_day = calendar.monthrange(year, month)[1]
+    last_thu = max(
+        date(year, month, d)
+        for d in range(last_day, 0, -1)
+        if date(year, month, d).weekday() == 3
+    )
+
+    is_weekly_expiry = today.weekday() == 3  # Thursday
+    is_monthly_expiry = is_weekly_expiry and today == last_thu
+    tomorrow_is_expiry = (today + timedelta(days=1)).weekday() == 3
+
+    if is_monthly_expiry:
+        return "⚠️ TODAY IS MONTHLY F&O EXPIRY. Apply Rule 6: Strong pin-to-Max-Pain bias. Reduce confidence by 10%. Force NO TRADE unless a very strong catalyst exists."
+    elif is_weekly_expiry:
+        return "⚠️ TODAY IS WEEKLY F&O EXPIRY (Thursday). Apply Rule 6: Option writers defend Max Pain. Bias FLAT. Reduce confidence by 10%."
+    elif tomorrow_is_expiry:
+        return "📅 TOMORROW IS F&O EXPIRY (Thursday). BTST positions carry overnight expiry risk — prefer NO TRADE or very tight targets."
+    return "No F&O expiry today or tomorrow."
+
+
+def _build_user_content(news_items: list[dict], market_signals: dict) -> str:
+    """Build enriched user prompt with all market signals including Nifty spot, OI and F&O expiry context."""
+    compact_news = [
+        {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
+        for item in news_items[:15]
+    ]
+
+    nifty_spot = market_signals.get("nifty_spot")
+    nifty_pct = market_signals.get("nifty_pct")
+    max_pain = market_signals.get("max_pain")
+    top_call = market_signals.get("top_oi_call_strike")
+    top_put = market_signals.get("top_oi_put_strike")
+    fo_context = _get_fo_expiry_context()
+
+    spot_line = f"Nifty 50 Spot: {nifty_spot} ({nifty_pct:+.2f}%)" if nifty_spot else "Nifty 50 Spot: Market closed / unavailable"
+    oi_line = f"Max Pain: {max_pain} | Top Call OI (Resistance): {top_call} | Top Put OI (Support): {top_put}" if max_pain else "Option Chain OI: Market closed / unavailable"
+
+    return f"""
+    NIFTY 50 Market Input Data:
+
+    📰 News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
+
+    📊 Market Microstructure Signals:
+    - {spot_line}
+    - GIFT Nifty Change: {market_signals.get('gift_nifty_change_pct', 'N/A')}%
+    - India VIX: {market_signals.get('india_vix', 'N/A')} ({market_signals.get('india_vix_change_pct', 'N/A')}%)
+    - PCR: {market_signals.get('pcr', 'N/A')} (>1 = Bullish bias, <0.8 = Bearish)
+    - {oi_line}
+    - Bank Nifty: {market_signals.get('sectoral_signals', {}).get('bank_nifty_pct', 'N/A')}%
+    - IT Nifty: {market_signals.get('sectoral_signals', {}).get('it_nifty_pct', 'N/A')}%
+    - Global Cues: {json.dumps(market_signals.get('global_market_changes', {}))}
+
+    📅 F&O Expiry Status: {fo_context}
+
+    Analyze all the above and produce the prediction JSON.
+    """
+
+
 
 
 class GeminiQuotaError(Exception):
@@ -101,18 +174,7 @@ def analyze_with_gemini(news_items: list[dict], market_signals: dict, api_key: s
     if not api_key:
         raise ValueError("GEMINI_API_KEY is not set.")
 
-    # Take top 12 news items for compact deep reasoning
-    compact_news = [
-        {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
-        for item in news_items[:12]
-    ]
-    user_content = f"""
-    NIFTY 50 Market Input Data:
-    - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
-    - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
-    
-    Analyze this data and produce the prediction JSON.
-    """
+    user_content = _build_user_content(news_items, market_signals)
     
     payload = {
         "contents": [
@@ -172,18 +234,9 @@ def analyze_with_grok(news_items: list[dict], market_signals: dict, api_key: str
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        
-        compact_news = [
-            {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
-            for item in news_items[:10]
-        ]
-        user_content = f"""
-        NIFTY 50 Market Input Data:
-        - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
-        - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
-        
-        Analyze this data and produce the prediction JSON.
-        """
+
+        user_content = _build_user_content(news_items, market_signals)
+
 
         for model in ["grok-2-1212", "grok-2", "grok-beta"]:
             payload = {
@@ -220,17 +273,8 @@ def analyze_with_groq(news_items: list[dict], market_signals: dict, api_key: str
             "Content-Type": "application/json"
         }
 
-        compact_news = [
-            {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
-            for item in news_items[:12]
-        ]
-        user_content = f"""
-        NIFTY 50 Market Input Data:
-        - Scraped News Articles ({len(compact_news)} items): {json.dumps(compact_news, indent=2)}
-        - Market Microstructure Signals: {json.dumps(market_signals, indent=2)}
-        
-        Analyze this data and produce the prediction JSON.
-        """
+        user_content = _build_user_content(news_items, market_signals)
+
 
         for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "groq/compound"]:
             payload = {
