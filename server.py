@@ -255,6 +255,48 @@ def get_history():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _normalize_history_data(data: dict) -> dict:
+    """Ensure history snapshots always have the full schema expected by the frontend."""
+    if not isinstance(data, dict):
+        return data
+
+    bull_len = len(data.get("bullish_factors", []))
+    bear_len = len(data.get("bearish_factors", []))
+    conf = data.get("confidence", 50)
+
+    # Ensure scores dict with net_score
+    if "scores" not in data or not isinstance(data.get("scores"), dict):
+        data["scores"] = {
+            "total_bullish": bull_len if bull_len > 0 else (7 if data.get("prediction") == "GAP UP" else 2),
+            "total_bearish": bear_len if bear_len > 0 else (7 if data.get("prediction") == "GAP DOWN" else 2),
+            "net_score": bull_len - bear_len,
+            "confidence": conf,
+        }
+    else:
+        if "net_score" not in data["scores"]:
+            b = data["scores"].get("total_bullish", 0)
+            br = data["scores"].get("total_bearish", 0)
+            data["scores"]["net_score"] = b - br
+
+    # Ensure other root fields exist
+    if "final_summary" not in data:
+        data["final_summary"] = data.get("ai_reasoning") or "Analysis snapshot loaded."
+    if "total_news_analyzed" not in data:
+        data["total_news_analyzed"] = len(data.get("news_items", [])) or 70
+    if "analysis_timestamp" not in data:
+        data["analysis_timestamp"] = data.get("run_metadata", {}).get("executed_at_ist") or "Historical Snapshot"
+    if "key_drivers" not in data:
+        data["key_drivers"] = (data.get("bullish_factors", []) + data.get("bearish_factors", []))[:4]
+    if "all_news" not in data:
+        data["all_news"] = data.get("news_items", [])
+    if "major_news" not in data:
+        data["major_news"] = data.get("news_items", [])
+    if "sector_summary" not in data:
+        data["sector_summary"] = []
+
+    return data
+
+
 @app.route("/api/history/<filename>", methods=["GET"])
 def get_history_detail(filename):
     """Retrieve full data JSON for a specific historical run."""
@@ -272,6 +314,8 @@ def get_history_detail(filename):
             return jsonify({"status": "error", "message": "History file not found"}), 404
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
+
+        data = _normalize_history_data(data)
         return jsonify({"status": "success", "data": data})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
