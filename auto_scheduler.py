@@ -92,9 +92,15 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
                     "source": it.get("source", "Financial News"),
                     "published_date": it.get("published_date", ""),
                     "category": it.get("category", "Markets"),
-                    "url": it.get("url", "#"),
+                    "sector": it.get("sector", "Markets"),
+                    "url": it.get("url") or it.get("link") or "#",
+                    "link": it.get("link") or it.get("url") or "#",
+                    "impact": "NEUTRAL",
                     "sentiment": "NEUTRAL",
+                    "importance": "MEDIUM",
                     "score": 0.0,
+                    "bullish_score": 0,
+                    "bearish_score": 0,
                     "confidence": conf_val
                 }
                 for it in news_items[:15]

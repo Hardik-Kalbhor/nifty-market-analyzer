@@ -287,11 +287,37 @@ def _normalize_history_data(data: dict) -> dict:
         data["analysis_timestamp"] = data.get("run_metadata", {}).get("executed_at_ist") or "Historical Snapshot"
     if "key_drivers" not in data:
         data["key_drivers"] = (data.get("bullish_factors", []) + data.get("bearish_factors", []))[:4]
-    if "all_news" not in data:
-        data["all_news"] = data.get("news_items", [])
-    if "major_news" not in data:
-        data["major_news"] = data.get("news_items", [])
-    if "sector_summary" not in data:
+    if "event_risk" not in data:
+        data["event_risk"] = "LOW"
+
+    # Normalize news items to have all required frontend fields
+    raw_news = data.get("all_news") or data.get("major_news") or data.get("news_items") or []
+    normalized_news = []
+    for item in raw_news:
+        if isinstance(item, dict):
+            imp = item.get("impact") or item.get("sentiment") or "NEUTRAL"
+            normalized_news.append({
+                "headline": item.get("headline", ""),
+                "source": item.get("source", "Financial News"),
+                "published_date": item.get("published_date", ""),
+                "category": item.get("category", "Markets"),
+                "sector": item.get("sector", "Markets"),
+                "link": item.get("link") or item.get("url") or "#",
+                "url": item.get("url") or item.get("link") or "#",
+                "impact": imp,
+                "sentiment": imp,
+                "importance": item.get("importance", "MEDIUM"),
+                "score": item.get("score", 0.0),
+                "bullish_score": item.get("bullish_score", 0),
+                "bearish_score": item.get("bearish_score", 0),
+                "strength_badge": item.get("strength_badge", "")
+            })
+
+    data["all_news"] = normalized_news
+    data["major_news"] = normalized_news
+    data["news_items"] = normalized_news
+
+    if "sector_summary" not in data or not isinstance(data.get("sector_summary"), list):
         data["sector_summary"] = []
 
     return data

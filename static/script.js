@@ -675,33 +675,52 @@ function renderIntradayPrediction(data) {
     animateGauge(bias.confidence, "intraday-gauge-fill", "intraday-gauge-number");
 
     // ── Volatility Card ──
+    const volLevel = (vol?.level || "LOW").toUpperCase();
     const volBadge = document.getElementById("volatility-badge");
-    volBadge.textContent = vol.level;
-    volBadge.className = `volatility-badge vol-${vol.level.toLowerCase()}`;
+    if (volBadge) {
+        volBadge.textContent = volLevel;
+        volBadge.className = `volatility-badge vol-${volLevel.toLowerCase()}`;
+    }
 
-    document.getElementById("volatility-range").textContent = vol.expected_range;
-    document.getElementById("volatility-pct").textContent = `~${vol.nifty_range_pct}`;
+    const volRange = document.getElementById("volatility-range");
+    if (volRange) volRange.textContent = vol?.expected_range || "30-50 pts";
+
+    const volPct = document.getElementById("volatility-pct");
+    if (volPct) volPct.textContent = vol?.nifty_range_pct ? `~${vol.nifty_range_pct}` : "~0.2%";
 
     // ── Market Phase ──
     const phaseStrip = document.getElementById("market-phase-strip");
-    phaseStrip.innerHTML = `
-        <span>${phase.icon}</span>
-        <span class="market-phase-name">${phase.phase}</span>
-        <span class="market-phase-desc">${phase.description}</span>
-    `;
+    if (phaseStrip) {
+        phaseStrip.innerHTML = `
+            <span>${phase?.icon || "📊"}</span>
+            <span class="market-phase-name">${phase?.phase || "MARKET HOURS"}</span>
+            <span class="market-phase-desc">${phase?.description || "Active Trading Session"}</span>
+        `;
+    }
 
     // ── Intraday Pattern ──
     const patternName = document.getElementById("intraday-pattern-name");
-    patternName.textContent = pattern.pattern;
-    patternName.className = `intraday-pattern-name ${getPatternClass(pattern.pattern)}`;
+    const patStr = pattern?.pattern || "RANGE-BOUND";
+    if (patternName) {
+        patternName.textContent = patStr;
+        patternName.className = `intraday-pattern-name ${getPatternClass(patStr)}`;
+    }
 
-    document.getElementById("intraday-pattern-desc").textContent = pattern.description;
-    document.getElementById("intraday-strategy-text").textContent = pattern.strategy;
-    document.getElementById("intraday-option-strategy-text").textContent = pattern.option_strategy;
+    const patDesc = document.getElementById("intraday-pattern-desc");
+    if (patDesc) patDesc.textContent = pattern?.description || "Market structure steady.";
 
+    const patStrat = document.getElementById("intraday-strategy-text");
+    if (patStrat) patStrat.textContent = pattern?.strategy || "Trade with strict risk management.";
+
+    const optStrat = document.getElementById("intraday-option-strategy-text");
+    if (optStrat) optStrat.textContent = pattern?.option_strategy || "Monitor price action at key levels.";
+
+    const riskLvlStr = (pattern?.risk_level || "LOW").toUpperCase();
     const riskLevel = document.getElementById("intraday-risk-level");
-    riskLevel.textContent = `⚠️ Risk Level: ${pattern.risk_level}`;
-    riskLevel.className = `intraday-risk-level risk-${pattern.risk_level.toLowerCase().replace(" ", "-")}`;
+    if (riskLevel) {
+        riskLevel.textContent = `⚠️ Risk Level: ${riskLvlStr}`;
+        riskLevel.className = `intraday-risk-level risk-${riskLvlStr.toLowerCase().replace(/\s+/g, "-")}`;
+    }
 
     // ── Strategies ──
     const strategiesContainer = document.getElementById("intraday-strategies");
@@ -907,34 +926,40 @@ function renderNewsCards(data) {
     }
 
     newsGrid.innerHTML = filtered
-        .map(
-            (n, i) => `
+        .map((n, i) => {
+            const impact = (n.impact || n.sentiment || "NEUTRAL").toUpperCase();
+            const importance = (n.importance || "MEDIUM").toUpperCase();
+            const impactClass = impact.toLowerCase();
+            const importanceClass = importance.toLowerCase();
+            const link = n.link || n.url || "#";
+
+            return `
         <div class="news-card animate-in" style="animation-delay: ${Math.min(i * 0.05, 0.5)}s;">
             <div class="news-card__header">
                 <div class="news-card__headline">
-                    <a href="${escapeHtml(n.link)}" target="_blank" rel="noopener noreferrer">
-                        ${escapeHtml(n.headline)}
+                    <a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">
+                        ${escapeHtml(n.headline || "Market Headline")}
                     </a>
                 </div>
                 <div class="news-card__badges">
-                    <span class="news-card__impact ${n.impact.toLowerCase()}">
-                        ${impactIcon(n.impact)} ${n.impact}
+                    <span class="news-card__impact ${impactClass}">
+                        ${impactIcon(impact)} ${impact}
                     </span>
-                    ${n.strength_badge ? `<span class="news-card__strength ${n.impact.toLowerCase()}">${escapeHtml(n.strength_badge)}</span>` : ""}
+                    ${n.strength_badge ? `<span class="news-card__strength ${impactClass}">${escapeHtml(n.strength_badge)}</span>` : ""}
                 </div>
             </div>
             <div class="news-card__meta">
-                <span class="news-card__tag sector-tag">${escapeHtml(n.sector)}</span>
-                <span class="news-card__tag importance-${n.importance.toLowerCase()}">${n.importance}</span>
-                <span class="news-card__tag">${escapeHtml(n.category)}</span>
+                <span class="news-card__tag sector-tag">${escapeHtml(n.sector || "Markets")}</span>
+                <span class="news-card__tag importance-${importanceClass}">${importance}</span>
+                <span class="news-card__tag">${escapeHtml(n.category || "Markets")}</span>
                 <span class="news-card__divider">•</span>
-                <span>${escapeHtml(n.source)}</span>
+                <span>${escapeHtml(n.source || "News")}</span>
                 <span class="news-card__divider">•</span>
-                <span>🕐 ${escapeHtml(n.published_date)}</span>
+                <span>🕐 ${escapeHtml(n.published_date || "")}</span>
             </div>
         </div>
-    `
-        )
+    `;
+        })
         .join("");
 }
 
