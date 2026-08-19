@@ -83,10 +83,10 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
     }
 
 
-def parse_ocr_raw_text(raw_text: str) -> dict[str, Any]:
+def parse_ocr_raw_text(raw_text: str, has_red_badge: bool = False, has_green_badge: bool = False) -> dict[str, Any]:
     """Parses raw OCR text received directly from client-side or server OCR."""
     t0 = time.time()
-    result = _parse_ocr_text_with_groq(raw_text, False, False)
+    result = _parse_ocr_text_with_groq(raw_text, has_red_badge, has_green_badge)
     if result and result.get("strike"):
         result["extraction_engine"] = "Groq LLM OCR Parser"
         result["latency_sec"] = round(time.time() - t0, 2)
@@ -106,12 +106,19 @@ def _parse_ocr_text_with_groq(ocr_text: str, has_red_badge: bool = False, has_gr
         logger.warning("GROQ_API_KEY not configured for OCR parsing.")
         return None
 
+    # Check for text clues of Sell / Short
+    has_sell_clue = (
+        has_red_badge
+        or bool(re.search(r"\bS\s+13\d|\bS\s+NIFTY|\bType\s+Avg.*?\bS\b", ocr_text, re.IGNORECASE))
+        or bool(re.search(r"-\d{2,4}", ocr_text))  # Negative quantity e.g. -195
+    )
+
     prompt = f"""
 You are an expert Indian stock broker trading OCR parser (Dhan, Zerodha Kite, Groww, AngelOne, Upstox).
 Analyze this OCR text and visual badge metadata from an active trading position screenshot.
 
-Visual Color Badge Detection:
-- Has Red Badge (Denoting Sell / S / Short Position): {has_red_badge}
+Visual Color & Text Clues:
+- Has Red Badge / Sell Clue (Denoting Sell / S / Short Position): {has_sell_clue or has_red_badge}
 - Has Green Badge (Denoting Buy / B / Long Position): {has_green_badge}
 
 OCR Extracted Text:
@@ -119,13 +126,17 @@ OCR Extracted Text:
 {ocr_text}
 \"\"\"
 
-CRITICAL DIRECTION RULES:
+CRITICAL DIRECTION & PRICE RULES:
 1. In Dhan / Indian brokers:
    - A RED box with 'S' denotes SELL / SHORT (Option Selling).
-   - A GREEN box with 'B' denotes BUY / LONG (Option Buying).
-   - If Type is 'S' or quantity is negative (-195), or if entry_premium > current_premium and P&L is in PROFIT (+), position_side MUST BE 'SHORT_CE' (for Call) or 'SHORT_PE' (for Put).
-   - If Type is 'B' or quantity is positive (+195), or if entry_premium < current_premium and P&L is in PROFIT (+), position_side is 'BUY_CE' (for Call) or 'BUY_PE' (for Put).
-2. If badge is 'Normal', 'CarryForward', 'NRML', or 'Delivery', trade_type is 'BTST'. If 'MIS' or 'Intraday', trade_type is 'INTRADAY'.
+   - If Type is 'S' or quantity is negative (-195) or Red Badge is true, position_side MUST BE 'SHORT_CE' (for Call) or 'SHORT_PE' (for Put).
+   - If Type is 'B' or quantity is positive (+195), position_side is 'BUY_CE' (for Call) or 'BUY_PE' (for Put).
+2. Prices & P&L:
+   - Entry Price is the 'Avg Price' or purchase price (e.g. 134.10).
+   - Current Price is the 'Live' / LTP price (e.g. 127.10).
+   - If both prices seem identical or corrupted by OCR, compute entry from P&L % and Live Price:
+     For Short Option: entry_premium = live_price / (1 - (pnl_pct / 100))
+3. If badge is 'Normal', 'CarryForward', 'NRML', or 'Delivery', trade_type is 'BTST'. If 'MIS' or 'Intraday', trade_type is 'INTRADAY'.
 
 Return ONLY a valid JSON object matching this schema:
 {{
@@ -165,6 +176,36 @@ Return ONLY a valid JSON object matching this schema:
             strike = re.sub(r"\bCALL\b", "CE", strike, flags=re.IGNORECASE)
             strike = re.sub(r"\bPUT\b", "PE", strike, flags=re.IGNORECASE)
             parsed["strike"] = strike
+
+            # Post-Processing: Force Direction if Red Badge or S detected
+            if has_sell_clue or has_red_badge:
+                if "CE" in strike.upper():
+                    parsed["position_side"] = "SHORT_CE"
+                elif "PE" in strike.upper():
+                    parsed["position_side"] = "SHORT_PE"
+
+            # Post-Processing: Reconstruct Entry Premium if corrupted or identical to current
+            pnl_pct = parsed.get("pnl_pct")
+            curr_prem = parsed.get("current_premium")
+            entry_prem = parsed.get("entry_premium")
+
+            if pnl_pct is not None and curr_prem is not None:
+                try:
+                    p = float(pnl_pct)
+                    c = float(curr_prem)
+                    e = float(entry_prem) if entry_prem is not None else 0.0
+
+                    if parsed["position_side"] in ["SHORT_CE", "SHORT_PE"]:
+                        reconstructed_entry = round(c / (1.0 - (p / 100.0)), 2)
+                        # If OCR missed entry or gave entry == curr, use mathematically reconstructed entry
+                        if e <= 0 or abs(e - c) < 0.5:
+                            parsed["entry_premium"] = reconstructed_entry
+                    elif parsed["position_side"] in ["BUY_CE", "BUY_PE"]:
+                        reconstructed_entry = round(c / (1.0 + (p / 100.0)), 2)
+                        if e <= 0 or abs(e - c) < 0.5:
+                            parsed["entry_premium"] = reconstructed_entry
+                except Exception as math_err:
+                    logger.debug(f"Math reconstruction note: {math_err}")
 
             return parsed
         else:

@@ -1343,35 +1343,43 @@ function showScreenshotBanner(message, type = "loading") {
 }
 
 async function processScreenshotFile(blob) {
-    showScreenshotBanner("🔍 Extracting open position parameters from screenshot...", "loading");
+    showScreenshotBanner("🔍 Analyzing broker screenshot & color badges...", "loading");
 
     try {
-        // 1. Client-side canvas resize for sub-second upload (~80KB)
-        const resizedB64 = await resizeImageToB64(blob, 1280);
+        // 1. Client-side canvas resize & color badge detection
+        const { b64: resizedB64, hasRedBadge, hasGreenBadge } = await analyzeImageCanvas(blob, 1400);
 
         // 2. Try server-side OCR & LLM extraction
-        const res = await fetch("/api/extract-screenshot", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image_b64: resizedB64 })
-        });
-        const json = await res.json();
+        try {
+            const res = await fetch("/api/extract-screenshot", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image_b64: resizedB64 })
+            });
+            const json = await res.json();
 
-        if (json.status === "success" && json.data) {
-            applyExtractedPositionData(json.data);
-            return;
+            if (json.status === "success" && json.data) {
+                applyExtractedPositionData(json.data);
+                return;
+            }
+        } catch (serverErr) {
+            console.warn("Server OCR failed, trying client-side Tesseract.js:", serverErr);
         }
 
-        // 3. Fallback: Client-side Tesseract.js if server OCR missed
+        // 3. Robust Client-side Tesseract.js fallback with color badge context
         if (window.Tesseract) {
-            showScreenshotBanner("⚡ Running high-res client-side OCR...", "loading");
+            showScreenshotBanner("⚡ Reading position data with high-res OCR...", "loading");
             const ocrRes = await Tesseract.recognize(blob, "eng");
             const rawText = ocrRes?.data?.text || "";
-            if (rawText.trim().length > 20) {
+            if (rawText.trim().length > 15) {
                 const textRes = await fetch("/api/extract-ocr-text", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ raw_text: rawText })
+                    body: JSON.stringify({
+                        raw_text: rawText,
+                        has_red_badge: hasRedBadge,
+                        has_green_badge: hasGreenBadge
+                    })
                 });
                 const textJson = await textRes.json();
                 if (textJson.status === "success" && textJson.data) {
@@ -1381,7 +1389,7 @@ async function processScreenshotFile(blob) {
             }
         }
 
-        showScreenshotBanner(json.message || "Could not detect active contract. Please enter fields manually.", "error");
+        showScreenshotBanner("Could not detect active contract. Please enter fields manually.", "error");
 
     } catch (e) {
         console.error("Screenshot OCR error:", e);
@@ -1389,7 +1397,7 @@ async function processScreenshotFile(blob) {
     }
 }
 
-function resizeImageToB64(blob, maxDim = 1280) {
+function analyzeImageCanvas(blob, maxDim = 1400) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => {
@@ -1409,11 +1417,54 @@ function resizeImageToB64(blob, maxDim = 1280) {
             canvas.height = h;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0, w, h);
-            resolve(canvas.toDataURL("image/jpeg", 0.85));
+
+            // Color badge detection
+            let hasRedBadge = false;
+            let hasGreenBadge = false;
+            try {
+                const imgData = ctx.getImageData(0, 0, w, h).data;
+                let redCount = 0;
+                let greenCount = 0;
+                for (let i = 0; i < imgData.length; i += 4) {
+                    const r = imgData[i];
+                    const g = imgData[i + 1];
+                    const b = imgData[i + 2];
+                    // Red badge: high R, low G/B
+                    if (r > 180 && g < 115 && b < 115) redCount++;
+                    // Green badge: high G, lower R
+                    if (g > 150 && r < 120 && b < 140) greenCount++;
+                }
+                hasRedBadge = redCount > 80;
+                hasGreenBadge = greenCount > 80;
+            } catch (err) {
+                console.debug("Canvas pixel analysis note:", err);
+            }
+
+            resolve({
+                b64: canvas.toDataURL("image/jpeg", 0.88),
+                hasRedBadge,
+                hasGreenBadge
+            });
         };
         img.onerror = reject;
         img.src = URL.createObjectURL(blob);
     });
+}
+
+function normalizePositionSide(side, strike = "") {
+    if (!side) return "BUY_CE";
+    const s = side.toUpperCase().replace(/\s+/g, "_");
+    if (s.includes("SHORT_CE") || s.includes("SELL_CE") || s.includes("SELL_CALL")) return "SHORT_CE";
+    if (s.includes("SHORT_PE") || s.includes("SELL_PE") || s.includes("SELL_PUT")) return "SHORT_PE";
+    if (s.includes("BUY_CE") || s.includes("LONG_CE") || s.includes("BUY_CALL")) return "BUY_CE";
+    if (s.includes("BUY_PE") || s.includes("LONG_PE") || s.includes("BUY_PUT")) return "BUY_PE";
+    if (s.includes("LONG_FUT")) return "LONG_FUTURES";
+    if (s.includes("SHORT_FUT")) return "SHORT_FUTURES";
+
+    if (s.includes("SHORT") || s.includes("SELL")) {
+        return (strike && strike.toUpperCase().includes("PE")) ? "SHORT_PE" : "SHORT_CE";
+    }
+    return "BUY_CE";
 }
 
 function applyExtractedPositionData(data) {
@@ -1425,10 +1476,11 @@ function applyExtractedPositionData(data) {
     const currPremEl = document.getElementById("current-premium");
 
     if (data.trade_type && tradeTypeEl) tradeTypeEl.value = data.trade_type;
-    if (data.position_side && posSideEl) {
-        // Map or select side
-        posSideEl.value = data.position_side;
-    }
+    
+    // Normalize position side
+    const normalizedSide = normalizePositionSide(data.position_side, data.strike);
+    if (posSideEl) posSideEl.value = normalizedSide;
+
     if (data.strike && strikeEl) strikeEl.value = data.strike;
     if (data.entry_spot && spotEl) spotEl.value = data.entry_spot;
     if (data.entry_premium && entryPremEl) entryPremEl.value = data.entry_premium;

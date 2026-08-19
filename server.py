@@ -422,10 +422,12 @@ def extract_ocr_text():
         from ocr_extractor import parse_ocr_raw_text
         data = request.get_json(force=True) or {}
         raw_text = data.get("raw_text", "").strip()
+        has_red = bool(data.get("has_red_badge", False))
+        has_green = bool(data.get("has_green_badge", False))
         if not raw_text:
             return jsonify({"status": "error", "message": "Empty text provided."}), 400
 
-        result = parse_ocr_raw_text(raw_text)
+        result = parse_ocr_raw_text(raw_text, has_red_badge=has_red, has_green_badge=has_green)
         if result.get("status") == "success":
             return jsonify(result)
         else:
