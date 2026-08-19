@@ -110,7 +110,11 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
             futures = [executor.submit(fetch_single_ticker, sym, k) for sym, k in tickers.items()]
-            for future in concurrent.futures.as_completed(futures, timeout=6):
+            done, not_done = concurrent.futures.wait(futures, timeout=6.0)
+            for f in not_done:
+                f.cancel()
+
+            for future in done:
                 try:
                     k, val = future.result()
                     if val is not None:

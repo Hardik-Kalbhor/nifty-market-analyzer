@@ -66,7 +66,11 @@ def fetch_heavyweight_stocks() -> dict[str, Any]:
             executor.submit(_fetch_single, sym, meta)
             for sym, meta in HEAVYWEIGHT_TICKERS.items()
         ]
-        for f in concurrent.futures.as_completed(futures, timeout=2.0):
+        done, not_done = concurrent.futures.wait(futures, timeout=3.5)
+        for f in not_done:
+            f.cancel()
+
+        for f in done:
             try:
                 sym, data = f.result()
                 if data:
