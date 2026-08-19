@@ -372,9 +372,66 @@ def exit_advisor():
         })
 
         return jsonify({"status": "success", "data": result})
-
     except Exception as e:
         logger.error(f"Exit Advisor error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/extract-screenshot", methods=["POST"])
+def extract_screenshot():
+    """
+    Extracts open options/futures position parameters from an uploaded broker screenshot
+    (Dhan, Zerodha Kite, Groww, Angel One, Upstox).
+    Accepts multipart/form-data ('image' file) or JSON ({'image_b64': '...'}).
+    """
+    try:
+        import base64
+        from ocr_extractor import extract_position_from_image
+
+        image_bytes = None
+        if "image" in request.files:
+            image_bytes = request.files["image"].read()
+        elif request.is_json:
+            data = request.get_json() or {}
+            b64_str = data.get("image_b64", "")
+            if "," in b64_str:
+                b64_str = b64_str.split(",", 1)[1]
+            if b64_str:
+                image_bytes = base64.b64decode(b64_str)
+
+        if not image_bytes:
+            return jsonify({"status": "error", "message": "No image provided. Please upload or paste a screenshot."}), 400
+
+        result = extract_position_from_image(image_bytes)
+        if result.get("status") == "success":
+            return jsonify(result)
+        else:
+            return jsonify(result), 422
+
+    except Exception as e:
+        logger.error(f"Screenshot extraction error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/extract-ocr-text", methods=["POST"])
+def extract_ocr_text():
+    """
+    Parses raw OCR text extracted client-side (e.g. via Tesseract.js) into structured position JSON.
+    """
+    try:
+        from ocr_extractor import parse_ocr_raw_text
+        data = request.get_json(force=True) or {}
+        raw_text = data.get("raw_text", "").strip()
+        if not raw_text:
+            return jsonify({"status": "error", "message": "Empty text provided."}), 400
+
+        result = parse_ocr_raw_text(raw_text)
+        if result.get("status") == "success":
+            return jsonify(result)
+        else:
+            return jsonify(result), 422
+    except Exception as e:
+        logger.error(f"OCR text extraction error: {e}\n{traceback.format_exc()}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

@@ -133,8 +133,11 @@ def build_exit_prompt_context(
     # Option P&L
     prem_info = "N/A (Tracking Spot)"
     if entry_premium > 0 and current_premium > 0:
-        pnl_pct = round(((current_premium - entry_premium) / entry_premium) * 100, 1)
-        prem_info = f"Entry: ₹{entry_premium} ➔ Current: ₹{current_premium} ({pnl_pct:+.1f}%)"
+        if side in ["SHORT_CE", "SHORT_PE"]:
+            pnl_pct = round(((entry_premium - current_premium) / entry_premium) * 100, 1)
+        else:
+            pnl_pct = round(((current_premium - entry_premium) / entry_premium) * 100, 1)
+        prem_info = f"Entry: ₹{entry_premium} ➔ Current: ₹{current_premium} ({pnl_pct:+.1f}% P&L)"
 
     # Heavyweight table
     hw_lines = []

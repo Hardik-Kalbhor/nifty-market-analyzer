@@ -1259,6 +1259,195 @@ function initExitAdvisor() {
             }
         });
     }
+
+    // ── Screenshot Upload & Paste Support ──
+    initScreenshotUploader();
+}
+
+function initScreenshotUploader() {
+    const fileInput = document.getElementById("screenshot-file-input");
+    const uploadBtn = document.getElementById("btn-upload-screenshot");
+    const pasteBtn = document.getElementById("btn-paste-screenshot");
+
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", (e) => {
+            if (e.target.files && e.target.files[0]) {
+                processScreenshotFile(e.target.files[0]);
+                fileInput.value = "";
+            }
+        });
+    }
+
+    if (pasteBtn) {
+        pasteBtn.addEventListener("click", async () => {
+            try {
+                if (navigator.clipboard && navigator.clipboard.read) {
+                    const items = await navigator.clipboard.read();
+                    let foundImage = false;
+                    for (const item of items) {
+                        for (const type of item.types) {
+                            if (type.startsWith("image/")) {
+                                const blob = await item.getType(type);
+                                processScreenshotFile(blob);
+                                foundImage = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!foundImage) {
+                        showScreenshotBanner("📋 No image found in clipboard. Press Cmd+V (Mac) or Ctrl+V (Windows) to paste.", "loading");
+                    }
+                } else {
+                    showScreenshotBanner("📋 Press Cmd+V or Ctrl+V anywhere to paste screenshot.", "loading");
+                }
+            } catch (err) {
+                showScreenshotBanner("📋 Press Cmd+V or Ctrl+V anywhere on screen to paste.", "loading");
+            }
+        });
+    }
+
+    // Global Paste Listener (Cmd+V / Ctrl+V anywhere)
+    window.addEventListener("paste", (e) => {
+        const items = (e.clipboardData || e.originalEvent.clipboardData)?.items;
+        if (!items) return;
+        for (const item of items) {
+            if (item.type.indexOf("image") !== -1) {
+                const blob = item.getAsFile();
+                if (blob) {
+                    // Switch to Live Exit Advisor tab if not active
+                    const exitTabBtn = document.querySelector('.tab-btn[data-tab="exit-advisor"]');
+                    if (exitTabBtn && !exitTabBtn.classList.contains("active")) {
+                        exitTabBtn.click();
+                    }
+                    processScreenshotFile(blob);
+                    e.preventDefault();
+                    break;
+                }
+            }
+        }
+    });
+}
+
+function showScreenshotBanner(message, type = "loading") {
+    const banner = document.getElementById("screenshot-status-banner");
+    if (!banner) return;
+    banner.style.display = "flex";
+    banner.className = `screenshot-status-banner ${type}`;
+    
+    let icon = "⏳";
+    if (type === "success") icon = "✅";
+    if (type === "error") icon = "⚠️";
+
+    banner.innerHTML = `<span>${icon}</span><span>${escapeHtml(message)}</span>`;
+}
+
+async function processScreenshotFile(blob) {
+    showScreenshotBanner("🔍 Extracting open position parameters from screenshot...", "loading");
+
+    try {
+        // 1. Client-side canvas resize for sub-second upload (~80KB)
+        const resizedB64 = await resizeImageToB64(blob, 1280);
+
+        // 2. Try server-side OCR & LLM extraction
+        const res = await fetch("/api/extract-screenshot", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_b64: resizedB64 })
+        });
+        const json = await res.json();
+
+        if (json.status === "success" && json.data) {
+            applyExtractedPositionData(json.data);
+            return;
+        }
+
+        // 3. Fallback: Client-side Tesseract.js if server OCR missed
+        if (window.Tesseract) {
+            showScreenshotBanner("⚡ Running high-res client-side OCR...", "loading");
+            const ocrRes = await Tesseract.recognize(blob, "eng");
+            const rawText = ocrRes?.data?.text || "";
+            if (rawText.trim().length > 20) {
+                const textRes = await fetch("/api/extract-ocr-text", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ raw_text: rawText })
+                });
+                const textJson = await textRes.json();
+                if (textJson.status === "success" && textJson.data) {
+                    applyExtractedPositionData(textJson.data);
+                    return;
+                }
+            }
+        }
+
+        showScreenshotBanner(json.message || "Could not detect active contract. Please enter fields manually.", "error");
+
+    } catch (e) {
+        console.error("Screenshot OCR error:", e);
+        showScreenshotBanner("Failed to parse screenshot. Please verify contract visibility.", "error");
+    }
+}
+
+function resizeImageToB64(blob, maxDim = 1280) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            let w = img.width;
+            let h = img.height;
+            if (w > maxDim || h > maxDim) {
+                if (w > h) {
+                    h = Math.round((h * maxDim) / w);
+                    w = maxDim;
+                } else {
+                    w = Math.round((w * maxDim) / h);
+                    h = maxDim;
+                }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", 0.85));
+        };
+        img.onerror = reject;
+        img.src = URL.createObjectURL(blob);
+    });
+}
+
+function applyExtractedPositionData(data) {
+    const tradeTypeEl = document.getElementById("trade-type");
+    const posSideEl = document.getElementById("position-side");
+    const strikeEl = document.getElementById("strike-name");
+    const spotEl = document.getElementById("entry-spot");
+    const entryPremEl = document.getElementById("entry-premium");
+    const currPremEl = document.getElementById("current-premium");
+
+    if (data.trade_type && tradeTypeEl) tradeTypeEl.value = data.trade_type;
+    if (data.position_side && posSideEl) {
+        // Map or select side
+        posSideEl.value = data.position_side;
+    }
+    if (data.strike && strikeEl) strikeEl.value = data.strike;
+    if (data.entry_spot && spotEl) spotEl.value = data.entry_spot;
+    if (data.entry_premium && entryPremEl) entryPremEl.value = data.entry_premium;
+    if (data.current_premium && currPremEl) currPremEl.value = data.current_premium;
+
+    let pnlMsg = "";
+    if (data.pnl_pct !== null && data.pnl_pct !== undefined) {
+        const pnlSign = data.pnl_pct >= 0 ? "+" : "";
+        pnlMsg = ` · P&L: ${pnlSign}${data.pnl_pct}%`;
+    }
+    if (data.pnl_amount) {
+        pnlMsg += ` (₹${Number(data.pnl_amount).toLocaleString("en-IN")})`;
+    }
+
+    const broker = data.broker_detected || "Broker";
+    showScreenshotBanner(`Parsed from ${broker}: ${data.strike || "Position"} (${data.position_side?.replace("_", " ")}) · Avg: ₹${data.entry_premium || "--"} · LTP: ₹${data.current_premium || "--"}${pnlMsg}`, "success");
+
+    // Automatically trigger evaluation for instant gratification
+    evaluateLiveExit(true);
 }
 
 async function evaluateLiveExit(showLoadingState = true) {

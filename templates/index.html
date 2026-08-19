@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=13.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=14.0">
 </head>
 <body>
 
@@ -370,11 +370,19 @@
                         Live Open Position Parameters
                     </div>
                     
-                    <div class="exit-preset-strip">
+                    <div class="exit-preset-strip" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
                         <button type="button" class="btn btn-secondary btn-sm" id="btn-preset-btst">
-                            ⚡ Auto-Fill From Today's BTST Signal
+                            ⚡ From BTST
+                        </button>
+                        <input type="file" id="screenshot-file-input" accept="image/*" style="display: none;">
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-upload-screenshot" title="Upload Dhan/Zerodha screenshot file">
+                            📁 Upload Screenshot
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" id="btn-paste-screenshot" title="Paste screenshot from clipboard (or press Cmd+V / Ctrl+V)">
+                            📋 Paste Screenshot (Cmd+V)
                         </button>
                     </div>
+                    <div id="screenshot-status-banner" class="screenshot-status-banner" style="display: none;"></div>
 
                     <form id="exit-advisor-form" class="exit-form">
                         <div class="form-row">
@@ -390,6 +398,8 @@
                                 <select id="position-side" class="form-control">
                                     <option value="BUY_CE" selected>BUY CE (Long Call)</option>
                                     <option value="BUY_PE">BUY PE (Long Put)</option>
+                                    <option value="SHORT_CE">SHORT CE (Sell Call / Short)</option>
+                                    <option value="SHORT_PE">SHORT PE (Sell Put / Short)</option>
                                     <option value="LONG_FUTURES">LONG Futures</option>
                                     <option value="SHORT_FUTURES">SHORT Futures</option>
                                 </select>
@@ -566,7 +576,8 @@
 
 </div>
 
-<script src="{{ url_for('static', filename='script.js') }}?v=13.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=14.0"></script>
 
 </body>
 </html>

@@ -1855,6 +1855,37 @@ body::before {
     margin-bottom: 32px;
 }
 
+/* Screenshot Status Banner */
+.screenshot-status-banner {
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    animation: fadeIn 0.25s ease-out;
+}
+
+.screenshot-status-banner.loading {
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: var(--accent);
+}
+
+.screenshot-status-banner.success {
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    color: var(--bullish);
+}
+
+.screenshot-status-banner.error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: var(--bearish);
+}
+
 @media (max-width: 1024px) {
     .exit-advisor-layout { grid-template-columns: 1fr; }
     .prediction-hero, .intraday-hero, .fii-dii-hero, .top-news-grid, .history-columns-container { grid-template-columns: 1fr; }
