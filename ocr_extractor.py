@@ -99,8 +99,27 @@ def parse_ocr_raw_text(raw_text: str, has_red_badge: bool = False, has_green_bad
 
 def _parse_ocr_text_with_groq(ocr_text: str, has_red_badge: bool = False, has_green_badge: bool = False) -> Optional[dict[str, Any]]:
     """
-    Sends raw OCR text to Groq Cloud LLM (openai/gpt-oss-120b) with specialized Indian broker rules.
+    Sends raw OCR text to Groq Cloud LLM (openai/gpt-oss-120b) with specialized Indian broker rules
+    combined with deterministic regex table verification.
     """
+    # 1. Deterministic Table / Row Regex Extraction (Ground Truth)
+    # Extracts rows matching: [Price] [Qty] [Total Value]
+    table_rows = re.findall(r"(\d{2,4}\.\d{2})\s+[\+\-]?(\d{2,4})\s+([\d,]+\.\d{2})", ocr_text)
+    m_avg = re.search(r"(?:Avg\s*Price|Type\s*Avg|Avg)\s*[\s\:\=]*(\d{2,4}\.\d{2})", ocr_text, re.IGNORECASE)
+    m_ltp = re.search(r"(?:Live|LTP)\s*[\:\|\s]*(\d{2,4}\.\d{2})", ocr_text, re.IGNORECASE)
+    
+    table_entry_prem = None
+    table_curr_prem = None
+    if m_avg:
+        table_entry_prem = float(m_avg.group(1))
+    elif table_rows:
+        table_entry_prem = float(table_rows[0][0])
+        
+    if m_ltp:
+        table_curr_prem = float(m_ltp.group(1))
+    elif len(table_rows) > 1:
+        table_curr_prem = float(table_rows[1][0])
+
     groq_key = os.environ.get("GROQ_API_KEY")
     if not groq_key:
         logger.warning("GROQ_API_KEY not configured for OCR parsing.")
@@ -109,7 +128,7 @@ def _parse_ocr_text_with_groq(ocr_text: str, has_red_badge: bool = False, has_gr
     # Check for text clues of Sell / Short
     has_sell_clue = (
         has_red_badge
-        or bool(re.search(r"\bS\s+13\d|\bS\s+NIFTY|\bType\s+Avg.*?\bS\b", ocr_text, re.IGNORECASE))
+        or bool(re.search(r"\bS\s+13\d|\bS\s+NIFTY|\bType\s+Avg.*?\bS\b|\bS\s+\d{2,4}", ocr_text, re.IGNORECASE))
         or bool(re.search(r"-\d{2,4}", ocr_text))  # Negative quantity e.g. -195
     )
 
@@ -131,11 +150,10 @@ CRITICAL DIRECTION & PRICE RULES:
    - A RED box with 'S' denotes SELL / SHORT (Option Selling).
    - If Type is 'S' or quantity is negative (-195) or Red Badge is true, position_side MUST BE 'SHORT_CE' (for Call) or 'SHORT_PE' (for Put).
    - If Type is 'B' or quantity is positive (+195), position_side is 'BUY_CE' (for Call) or 'BUY_PE' (for Put).
-2. Prices & P&L:
-   - Entry Price is the 'Avg Price' or purchase price (e.g. 134.10).
-   - Current Price is the 'Live' / LTP price (e.g. 127.10).
-   - If both prices seem identical or corrupted by OCR, compute entry from P&L % and Live Price:
-     For Short Option: entry_premium = live_price / (1 - (pnl_pct / 100))
+2. Prices & Spot:
+   - Entry Price is the 'Avg Price' in Position Summary (e.g. 134.10).
+   - Current Price is the 'Live' / 'LTP' price (e.g. 123.10).
+   - In Dhan, 'Underlying Spot' is the CURRENT LIVE index spot price, NOT the entry spot! Always return entry_spot as null.
 3. If badge is 'Normal', 'CarryForward', 'NRML', or 'Delivery', trade_type is 'BTST'. If 'MIS' or 'Intraday', trade_type is 'INTRADAY'.
 
 Return ONLY a valid JSON object matching this schema:
@@ -145,7 +163,7 @@ Return ONLY a valid JSON object matching this schema:
   "trade_type": "BTST" | "INTRADAY",
   "entry_premium": number (the purchase / avg price),
   "current_premium": number (the live market price / LTP),
-  "entry_spot": number (Nifty spot index level shown on screen, else null),
+  "entry_spot": null,
   "pnl_amount": number (unrealized profit/loss in INR),
   "pnl_pct": number (percentage gain or loss),
   "oi_change_pct": number (OI change percent if visible, else null),
@@ -177,6 +195,15 @@ Return ONLY a valid JSON object matching this schema:
             strike = re.sub(r"\bPUT\b", "PE", strike, flags=re.IGNORECASE)
             parsed["strike"] = strike
 
+            # Underlying Spot is LIVE spot, NOT Entry spot -> Always null out entry_spot from screenshot
+            parsed["entry_spot"] = None
+
+            # Enforce deterministic table numbers if found
+            if table_entry_prem is not None:
+                parsed["entry_premium"] = table_entry_prem
+            if table_curr_prem is not None:
+                parsed["current_premium"] = table_curr_prem
+
             # Post-Processing: Force Direction if Red Badge or S detected
             if has_sell_clue or has_red_badge:
                 if "CE" in strike.upper():
@@ -184,7 +211,7 @@ Return ONLY a valid JSON object matching this schema:
                 elif "PE" in strike.upper():
                     parsed["position_side"] = "SHORT_PE"
 
-            # Post-Processing: Reconstruct Entry Premium if corrupted or identical to current
+            # Post-Processing: Mathematical Entry Premium reconstruction for Short Options
             pnl_pct = parsed.get("pnl_pct")
             curr_prem = parsed.get("current_premium")
             entry_prem = parsed.get("entry_premium")
@@ -196,11 +223,14 @@ Return ONLY a valid JSON object matching this schema:
                     e = float(entry_prem) if entry_prem is not None else 0.0
 
                     if parsed["position_side"] in ["SHORT_CE", "SHORT_PE"]:
+                        # Option Selling formula: profit when current drops below entry
+                        # Entry = LTP / (1 - PnL/100) -> 123.10 / (1 - 0.082) = 134.10
                         reconstructed_entry = round(c / (1.0 - (p / 100.0)), 2)
-                        # If OCR missed entry or gave entry == curr, use mathematically reconstructed entry
                         if e <= 0 or abs(e - c) < 0.5:
                             parsed["entry_premium"] = reconstructed_entry
                     elif parsed["position_side"] in ["BUY_CE", "BUY_PE"]:
+                        # Option Buying formula: profit when current rises above entry
+                        # Entry = LTP / (1 + PnL/100)
                         reconstructed_entry = round(c / (1.0 + (p / 100.0)), 2)
                         if e <= 0 or abs(e - c) < 0.5:
                             parsed["entry_premium"] = reconstructed_entry

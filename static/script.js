@@ -1507,7 +1507,9 @@ function applyExtractedPositionData(data) {
     if (posSideEl) posSideEl.value = normalizedSide;
 
     if (data.strike && strikeEl) strikeEl.value = data.strike;
-    if (data.entry_spot && spotEl) spotEl.value = data.entry_spot;
+    if (data.entry_spot && spotEl) {
+        spotEl.value = data.entry_spot;
+    }
     if (data.entry_premium && entryPremEl) entryPremEl.value = data.entry_premium;
     if (data.current_premium && currPremEl) currPremEl.value = data.current_premium;
 
@@ -1521,7 +1523,7 @@ function applyExtractedPositionData(data) {
     }
 
     const broker = data.broker_detected || "Broker";
-    showScreenshotBanner(`Parsed from ${broker}: ${data.strike || "Position"} (${data.position_side?.replace("_", " ")}) · Avg: ₹${data.entry_premium || "--"} · LTP: ₹${data.current_premium || "--"}${pnlMsg}`, "success");
+    showScreenshotBanner(`Parsed from ${broker}: ${data.strike || "Position"} (${normalizedSide.replace("_", " ")}) · Avg: ₹${data.entry_premium || "--"} · LTP: ₹${data.current_premium || "--"}${pnlMsg}`, "success");
 
     // Automatically trigger evaluation for instant gratification
     evaluateLiveExit(true);
