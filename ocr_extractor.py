@@ -13,6 +13,9 @@ import time
 from typing import Any, Optional
 from PIL import Image, ImageEnhance
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger("nifty_analyzer.ocr_extractor")
 
@@ -46,15 +49,27 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
     # 2. Try Pytesseract OCR + Groq Cloud LLM
     if PYTESSERACT_AVAILABLE:
         try:
-            # Enhanced grayscale & contrast
-            enhanced_img = img.convert("L")
-            enhanced_img = ImageEnhance.Contrast(enhanced_img).enhance(2.0)
+            import numpy as np
+            
+            # Detect red vs green badges in broker screenshots
+            img_rgb = np.array(img.convert("RGB"))
+            red_mask = (img_rgb[:, :, 0] > 180) & (img_rgb[:, :, 1] < 120) & (img_rgb[:, :, 2] < 120)
+            green_mask = (img_rgb[:, :, 0] < 120) & (img_rgb[:, :, 1] > 150) & (img_rgb[:, :, 2] < 140)
+
+            has_red_badge = bool(np.sum(red_mask) > 100)
+            has_green_badge = bool(np.sum(green_mask) > 100)
+
+            # 2x Lanczos upscaling for crystal clear text OCR
+            w, h = img.size
+            upscaled = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+            gray = upscaled.convert("L")
+            enhanced_img = ImageEnhance.Contrast(gray).enhance(2.0)
             
             raw_text = pytesseract.image_to_string(enhanced_img)
-            logger.info(f"Pytesseract extracted {len(raw_text)} characters in {time.time()-t0:.2f}s.")
+            logger.info(f"Pytesseract extracted {len(raw_text)} characters in {time.time()-t0:.2f}s (Red badge: {has_red_badge}, Green badge: {has_green_badge}).")
             
             if len(raw_text.strip()) > 20:
-                result = _parse_ocr_text_with_groq(raw_text)
+                result = _parse_ocr_text_with_groq(raw_text, has_red_badge, has_green_badge)
                 if result and result.get("strike"):
                     result["extraction_engine"] = "Pytesseract OCR + Groq LLM"
                     result["latency_sec"] = round(time.time() - t0, 2)
@@ -71,7 +86,7 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
 def parse_ocr_raw_text(raw_text: str) -> dict[str, Any]:
     """Parses raw OCR text received directly from client-side or server OCR."""
     t0 = time.time()
-    result = _parse_ocr_text_with_groq(raw_text)
+    result = _parse_ocr_text_with_groq(raw_text, False, False)
     if result and result.get("strike"):
         result["extraction_engine"] = "Groq LLM OCR Parser"
         result["latency_sec"] = round(time.time() - t0, 2)
@@ -82,7 +97,7 @@ def parse_ocr_raw_text(raw_text: str) -> dict[str, Any]:
     }
 
 
-def _parse_ocr_text_with_groq(ocr_text: str) -> Optional[dict[str, Any]]:
+def _parse_ocr_text_with_groq(ocr_text: str, has_red_badge: bool = False, has_green_badge: bool = False) -> Optional[dict[str, Any]]:
     """
     Sends raw OCR text to Groq Cloud LLM (openai/gpt-oss-120b) with specialized Indian broker rules.
     """
@@ -92,18 +107,30 @@ def _parse_ocr_text_with_groq(ocr_text: str) -> Optional[dict[str, Any]]:
         return None
 
     prompt = f"""
-You are an expert Indian stock broker trading OCR parser.
-Extract the open position parameters from the OCR text of a Dhan/Zerodha/Groww/AngelOne screenshot.
+You are an expert Indian stock broker trading OCR parser (Dhan, Zerodha Kite, Groww, AngelOne, Upstox).
+Analyze this OCR text and visual badge metadata from an active trading position screenshot.
+
+Visual Color Badge Detection:
+- Has Red Badge (Denoting Sell / S / Short Position): {has_red_badge}
+- Has Green Badge (Denoting Buy / B / Long Position): {has_green_badge}
 
 OCR Extracted Text:
 \"\"\"
 {ocr_text}
 \"\"\"
 
+CRITICAL DIRECTION RULES:
+1. In Dhan / Indian brokers:
+   - A RED box with 'S' denotes SELL / SHORT (Option Selling).
+   - A GREEN box with 'B' denotes BUY / LONG (Option Buying).
+   - If Type is 'S' or quantity is negative (-195), or if entry_premium > current_premium and P&L is in PROFIT (+), position_side MUST BE 'SHORT_CE' (for Call) or 'SHORT_PE' (for Put).
+   - If Type is 'B' or quantity is positive (+195), or if entry_premium < current_premium and P&L is in PROFIT (+), position_side is 'BUY_CE' (for Call) or 'BUY_PE' (for Put).
+2. If badge is 'Normal', 'CarryForward', 'NRML', or 'Delivery', trade_type is 'BTST'. If 'MIS' or 'Intraday', trade_type is 'INTRADAY'.
+
 Return ONLY a valid JSON object matching this schema:
 {{
   "strike": string (e.g. "24100 CE" or "24100 CALL"),
-  "position_side": "BUY_CE" | "BUY_PE" | "SHORT_CE" | "SHORT_PE" | "LONG_FUTURES" | "SHORT_FUTURES",
+  "position_side": "SHORT_CE" | "SHORT_PE" | "BUY_CE" | "BUY_PE" | "LONG_FUTURES" | "SHORT_FUTURES",
   "trade_type": "BTST" | "INTRADAY",
   "entry_premium": number (the purchase / avg price),
   "current_premium": number (the live market price / LTP),
@@ -111,15 +138,8 @@ Return ONLY a valid JSON object matching this schema:
   "pnl_amount": number (unrealized profit/loss in INR),
   "pnl_pct": number (percentage gain or loss),
   "oi_change_pct": number (OI change percent if visible, else null),
-  "broker_detected": string (e.g. "Dhan Android" or "Dhan Web" or "Zerodha Kite")
+  "broker_detected": string (e.g. "Dhan Web" or "Dhan Android" or "Zerodha Kite")
 }}
-
-Mathematical Direction Rules:
-- If a CALL option has entry_premium > current_premium and is in PROFIT (or P&L is positive), it means the trader SOLD the call -> position_side is 'SHORT_CE'.
-- If a CALL option has entry_premium < current_premium and is in PROFIT, it is 'BUY_CE'.
-- If a PUT option has entry_premium > current_premium and is in PROFIT, it is 'SHORT_PE'.
-- If a PUT option has entry_premium < current_premium and is in PROFIT, it is 'BUY_PE'.
-- If badge is 'Normal' or 'CarryForward' or 'NRML', trade_type is 'BTST'. If 'MIS' or 'Intraday', trade_type is 'INTRADAY'.
 """
 
     url = "https://api.groq.com/openai/v1/chat/completions"
