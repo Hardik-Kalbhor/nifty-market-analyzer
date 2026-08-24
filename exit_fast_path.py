@@ -116,16 +116,18 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
                 "is_fast_path": True,
             }
 
-    # 2. Extreme Volatility / VIX Shock (>= 4.0% intraday spike)
-    if vix_change_pct >= 4.0:
+    # 2. Extreme Volatility / VIX Shock (>= 8.0% spike or VIX > 18 with 5% spike)
+    current_vix = float(live_signals.get("india_vix") or 14.0)
+    is_vix_shock = (vix_change_pct >= 8.0) or (current_vix >= 18.0 and vix_change_pct >= 5.0)
+    if is_vix_shock:
         return {
             "verdict": "EMERGENCY_EXIT",
             "action": "Liquidate position immediately with market order.",
             "confidence": 92,
             "urgency": "CRITICAL",
             "engine": "Deterministic Fast-Path (VIX Shock)",
-            "reasoning": f"India VIX spiked sharply by +{vix_change_pct:.2f}%. Extreme volatility expansion threatens option whip-saws and rapid premium erosion.",
-            "trailing_sl": round(current_spot, 2),
+            "reasoning": f"India VIX spiked sharply by +{vix_change_pct:.2f}% (VIX at {current_vix:.2f}). Extreme volatility expansion threatens option whip-saws and rapid risk expansion.",
+            "trailing_sl": round(current_spot, 2) if current_spot > 0 else 0,
             "is_fast_path": True,
         }
 
@@ -133,7 +135,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
     if entry_spot > 0 and current_spot > 0:
         spot_pct_move = ((current_spot - entry_spot) / entry_spot) * 100
         
-        # Bullish trade (BUY_CE or LONG_FUTURES) suffering severe drop
+        # Bullish trade (BUY_CE, LONG_FUTURES, SHORT_PE) suffering severe drop
         if side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"] and spot_pct_move <= -0.60:
             return {
                 "verdict": "FULL_EXIT",
@@ -146,7 +148,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
                 "is_fast_path": True,
             }
         
-        # Bearish trade (BUY_PE or SHORT_FUTURES) suffering severe rally
+        # Bearish trade (BUY_PE, SHORT_FUTURES, SHORT_CE) suffering severe rally
         if side in ["BUY_PE", "SHORT_FUTURES", "SHORT_CE"] and spot_pct_move >= 0.60:
             return {
                 "verdict": "FULL_EXIT",
@@ -161,16 +163,29 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
 
     # 4. Hard Stop Loss on Option Premium (e.g. Loss >= 28%)
     if entry_premium > 0 and current_premium > 0:
-        prem_pnl_pct = ((current_premium - entry_premium) / entry_premium) * 100
+        is_short = side in ["SHORT_CE", "SHORT_PE", "SHORT_FUTURES"]
+        if is_short:
+            # Option Selling: profit when premium drops (decay), loss when premium surges
+            prem_pnl_pct = ((entry_premium - current_premium) / entry_premium) * 100
+        else:
+            # Option Buying: profit when premium rises, loss when premium drops
+            prem_pnl_pct = ((current_premium - entry_premium) / entry_premium) * 100
+
         if prem_pnl_pct <= -28.0:
+            loss_pct = abs(prem_pnl_pct)
+            direction_desc = (
+                f"Option premium surged against short position from {entry_premium} to {current_premium}"
+                if is_short else
+                f"Option premium dropped from {entry_premium} to {current_premium}"
+            )
             return {
                 "verdict": "FULL_EXIT",
-                "action": f"Exit at market. Stop-loss triggered at {prem_pnl_pct:.1f}% loss.",
+                "action": f"Exit at market. Stop-loss triggered at -{loss_pct:.1f}% loss.",
                 "confidence": 92,
                 "urgency": "HIGH",
                 "engine": "Deterministic Fast-Path (Premium Stop Hit)",
-                "reasoning": f"Option premium dropped from {entry_premium} to {current_premium} ({prem_pnl_pct:.1f}% loss), exceeding the maximum 25-28% capital risk limit.",
-                "trailing_sl": round(current_premium, 2),
+                "reasoning": f"{direction_desc} (-{loss_pct:.1f}% loss), exceeding the maximum 25-28% capital risk limit.",
+                "trailing_sl": round(current_spot, 2) if current_spot > 0 else round(entry_spot, 2),
                 "is_fast_path": True,
             }
 
