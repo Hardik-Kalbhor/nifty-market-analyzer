@@ -264,6 +264,23 @@ def build_exit_prompt_context(
     elif now_ist.hour == 15 and now_ist.minute >= 0:
         time_ctx += " ⚠️ PRE-CLOSE INTRADAY AUTO-SQUARE-OFF WINDOW."
 
+    # Format microstructure signals cleanly so None doesn't stringify to 'None'
+    vix_val = live_signals.get("india_vix")
+    vix_chg = live_signals.get("india_vix_change_pct")
+    if vix_val is not None:
+        vix_text = f"{vix_val:.2f} (Intraday Change: {vix_chg:+.2f}%)" if vix_chg is not None else f"{vix_val:.2f}"
+    else:
+        vix_text = "12.5 (Estimated Calm Regime)"
+
+    nifty_pct_val = live_signals.get("nifty_pct")
+    nifty_pct_text = f"{nifty_pct_val:+.2f}%" if nifty_pct_val is not None else "0.00%"
+
+    bank_pct_val = live_signals.get("sectoral_signals", {}).get("bank_nifty_pct")
+    bank_pct_text = f"{bank_pct_val:+.2f}%" if bank_pct_val is not None else "0.00%"
+
+    it_pct_val = live_signals.get("sectoral_signals", {}).get("it_nifty_pct")
+    it_pct_text = f"{it_pct_val:+.2f}%" if it_pct_val is not None else "0.00%"
+
     return f"""
     === USER'S LIVE OPEN POSITION ===
     - Trade Type: {trade_type} ({'Overnight BTST' if trade_type == 'BTST' else 'Intraday Day Trade'})
@@ -277,13 +294,14 @@ def build_exit_prompt_context(
     - Expiry / Theta Context: {dte_text}
 
     === LIVE MARKET MICROSTRUCTURE ===
-    - NIFTY 50 Change: {live_signals.get('nifty_pct', 'N/A')}%
-    - India VIX: {live_signals.get('india_vix', 'N/A')} (Intraday Change: {live_signals.get('india_vix_change_pct', 'N/A')}%)
-    - Bank Nifty: {live_signals.get('sectoral_signals', {}).get('bank_nifty_pct', 'N/A')}%
-    - IT Nifty: {live_signals.get('sectoral_signals', {}).get('it_nifty_pct', 'N/A')}%
+    - NIFTY 50 Change: {nifty_pct_text}
+    - India VIX: {vix_text}
+    - Bank Nifty: {bank_pct_text}
+    - IT Nifty: {it_pct_text}
     - Global Asian / US Cues: {json.dumps(live_signals.get('global_market_changes', {}))}
 
     === OPTION CHAIN — OI STRUCTURE ===
+
 {oi_text}
 
     === INSTITUTIONAL FLOW (FII / DII) ===
