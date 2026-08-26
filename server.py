@@ -302,6 +302,12 @@ def _normalize_history_data(data: dict) -> dict:
         data["key_drivers"] = (data.get("bullish_factors", []) + data.get("bearish_factors", []))[:4]
     if "event_risk" not in data:
         data["event_risk"] = "LOW"
+    if "market_signals" not in data:
+        data["market_signals"] = data.get("market_signals_detail") or {}
+    if "market_signals_detail" not in data:
+        data["market_signals_detail"] = data.get("market_signals") or {}
+    if "fii_dii" not in data:
+        data["fii_dii"] = {}
 
     # Normalize news items to have all required frontend fields
     raw_news = data.get("all_news") or data.get("major_news") or data.get("news_items") or []

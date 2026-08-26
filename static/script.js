@@ -202,26 +202,42 @@ async function startAnalysis() {
 // Render Dashboard
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+function _safeNum(val) {
+    if (val === null || val === undefined || val === "") return null;
+    const n = Number(val);
+    return isNaN(n) ? null : n;
+}
+
 function renderDashboard(data) {
+    if (!data || typeof data !== "object") return;
     analysisData = data;
+
+    const safeExec = (fn, name) => {
+        try {
+            fn(data);
+        } catch (err) {
+            console.error(`Error in ${name}:`, err);
+        }
+    };
+
     // BTST Tab
-    renderPredictionHero(data);
-    renderInfoStrip(data);
-    renderScoreBar(data);
-    renderBtstAgentConsensus(data);
-    renderSummary(data);
-    renderSignalsTable(data);
-    renderEventRisk(data);
-    renderKeyDrivers(data);
-    renderFactors(data);
-    renderSectorSummary(data);
+    safeExec(renderPredictionHero, "renderPredictionHero");
+    safeExec(renderInfoStrip, "renderInfoStrip");
+    safeExec(renderScoreBar, "renderScoreBar");
+    safeExec(renderBtstAgentConsensus, "renderBtstAgentConsensus");
+    safeExec(renderSummary, "renderSummary");
+    safeExec(renderSignalsTable, "renderSignalsTable");
+    safeExec(renderEventRisk, "renderEventRisk");
+    safeExec(renderKeyDrivers, "renderKeyDrivers");
+    safeExec(renderFactors, "renderFactors");
+    safeExec(renderSectorSummary, "renderSectorSummary");
 
     // Intraday Tab
-    renderIntradayPrediction(data);
+    safeExec(renderIntradayPrediction, "renderIntradayPrediction");
 
     // Common: News
-    renderTopBullishBearishNews(data);
-    renderNewsCards(data);
+    safeExec(renderTopBullishBearishNews, "renderTopBullishBearishNews");
+    safeExec(renderNewsCards, "renderNewsCards");
 
     dashboard.classList.add("active");
 
@@ -306,6 +322,13 @@ function renderBtstAgentConsensus(data) {
         grid.appendChild(card);
     }
 }
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Prediction Hero (BTST)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// (keeps renderPredictionHero as is...)
+
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -489,13 +512,13 @@ function renderSignalsTable(data) {
 
     const ms = data.market_signals || data.market_signals_detail || {};
     const fiiDii = data.fii_dii || {};
-    const globalMkts = ms.global_markets || {};
+    const globalMkts = ms.global_markets || ms.global_market_changes || data.market_signals_detail?.global_market_changes || {};
 
     const rows = [];
 
     // 1. GIFT Nifty
-    const giftPct = ms.gift_nifty_change_pct;
-    if (giftPct !== null && giftPct !== undefined) {
+    const giftPct = _safeNum(ms.gift_nifty_change_pct ?? data.market_signals_detail?.gift_nifty_change_pct);
+    if (giftPct !== null) {
         const valStr = giftPct >= 0 ? `+${giftPct.toFixed(2)}%` : `${giftPct.toFixed(2)}%`;
         const cls = giftPct > 0.2 ? "positive" : (giftPct < -0.2 ? "negative" : "neutral");
         const status = giftPct > 0.2 ? "🟢 GAP UP (Positive Opening Bias)" : (giftPct < -0.2 ? "🔴 GAP DOWN (Negative Opening Bias)" : "🟡 FLAT (No Directional Gap)");
@@ -503,8 +526,8 @@ function renderSignalsTable(data) {
     }
 
     // 2. FII Flow
-    const fiiNet = fiiDii.fii_net !== undefined ? fiiDii.fii_net : (fiiDii.fii_net_crores !== undefined ? fiiDii.fii_net_crores : (fiiDii.fii ? fiiDii.fii.net : null));
-    if (fiiNet !== null && fiiNet !== undefined) {
+    const fiiNet = _safeNum(fiiDii.fii_net ?? fiiDii.fii_net_crores ?? fiiDii.fii?.net);
+    if (fiiNet !== null) {
         const valStr = `₹${formatCrore(fiiNet)} Cr`;
         const cls = fiiNet >= 0 ? "positive" : "negative";
         const status = fiiNet >= 0 ? "🟢 NET BUYERS (Foreign Institutional Inflows)" : "🔴 NET SELLERS (Foreign Institutional Outflows)";
@@ -512,8 +535,8 @@ function renderSignalsTable(data) {
     }
 
     // 3. DII Flow
-    const diiNet = fiiDii.dii_net !== undefined ? fiiDii.dii_net : (fiiDii.dii_net_crores !== undefined ? fiiDii.dii_net_crores : (fiiDii.dii ? fiiDii.dii.net : null));
-    if (diiNet !== null && diiNet !== undefined) {
+    const diiNet = _safeNum(fiiDii.dii_net ?? fiiDii.dii_net_crores ?? fiiDii.dii?.net);
+    if (diiNet !== null) {
         const valStr = `₹${formatCrore(diiNet)} Cr`;
         const cls = diiNet >= 0 ? "positive" : "negative";
         const status = diiNet >= 0 ? "🟢 NET BUYERS (Domestic Institutional Support)" : "🔴 NET SELLERS (Domestic Outflows)";
@@ -521,10 +544,10 @@ function renderSignalsTable(data) {
     }
 
     // 4. India VIX
-    const vix = ms.india_vix;
-    const vixChg = ms.india_vix_change_pct;
-    if (vix !== null && vix !== undefined) {
-        const chgStr = vixChg !== null && vixChg !== undefined ? ` (${vixChg >= 0 ? "+" : ""}${vixChg.toFixed(2)}%)` : "";
+    const vix = _safeNum(ms.india_vix ?? data.market_signals_detail?.india_vix);
+    const vixChg = _safeNum(ms.india_vix_change_pct ?? data.market_signals_detail?.india_vix_change_pct);
+    if (vix !== null) {
+        const chgStr = vixChg !== null ? ` (${vixChg >= 0 ? "+" : ""}${vixChg.toFixed(2)}%)` : "";
         const valStr = `${vix.toFixed(2)}${chgStr}`;
         const cls = vix < 16 ? "positive" : (vix > 20 ? "negative" : "neutral");
         const status = vix < 16 ? "🟢 LOW VOLATILITY (Safe Option Premium Regime)" : (vix > 20 ? "🔴 HIGH VOLATILITY (Extreme Premium Risk)" : "🟡 MODERATE VOLATILITY");
@@ -532,15 +555,39 @@ function renderSignalsTable(data) {
     }
 
     // 5. Put-Call Ratio
-    const pcr = ms.pcr;
-    if (pcr !== null && pcr !== undefined) {
+    const pcr = _safeNum(ms.pcr ?? data.market_signals_detail?.pcr);
+    if (pcr !== null) {
         const valStr = `${pcr.toFixed(2)}`;
         const cls = pcr > 1.2 ? "positive" : (pcr < 0.8 ? "negative" : "neutral");
         const status = pcr > 1.2 ? "🟢 BULLISH SUPPORT (Call Writers Trapped)" : (pcr < 0.8 ? "🔴 BEARISH RESISTANCE (Put Writers Trapped)" : "🟡 NEUTRAL (Balanced Open Interest)");
         rows.push({ name: "🎯 Put-Call Ratio (PCR)", value: valStr, category: "Options Open Interest", status, cls });
     }
 
-    // 6. Regional & Global Markets Configuration
+    // 6. Top 5 Heavyweights (~39% Index Impact)
+    if (data.heavyweights && typeof data.heavyweights === "object") {
+        Object.entries(data.heavyweights).forEach(([ticker, hData]) => {
+            if (hData && typeof hData === "object") {
+                const name = hData.name || ticker;
+                const chg = _safeNum(hData.change_pct);
+                const price = _safeNum(hData.price);
+                const weight = _safeNum(hData.weight) || "";
+                if (chg !== null) {
+                    const valStr = `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%${price ? ` (₹${price})` : ""}`;
+                    const cls = chg > 0 ? "positive" : (chg < 0 ? "negative" : "neutral");
+                    const status = chg > 0.3 ? `🟢 LIFTING INDEX (${weight}% Weight)` : (chg < -0.3 ? `🔴 DRAGGING INDEX (${weight}% Weight)` : `🟡 FLAT (${weight}% Weight)`);
+                    rows.push({
+                        name: `🏢 ${name}`,
+                        value: valStr,
+                        category: `Constituent Heavyweight (~${weight}%)`,
+                        status,
+                        cls
+                    });
+                }
+            }
+        });
+    }
+
+    // 7. Regional & Global Markets Configuration
     const MARKET_META = {
         sp500: {
             name: "🇺🇸 S&P 500 Index",
@@ -574,8 +621,9 @@ function renderSignalsTable(data) {
         }
     };
 
-    Object.entries(globalMkts).forEach(([symbol, pct]) => {
-        if (pct !== null && pct !== undefined) {
+    Object.entries(globalMkts).forEach(([symbol, rawPct]) => {
+        const pct = _safeNum(rawPct);
+        if (pct !== null) {
             const key = symbol.toLowerCase();
             const meta = MARKET_META[key] || {
                 name: `🌐 ${symbol.toUpperCase()} Index`,
@@ -611,6 +659,7 @@ function renderSignalsTable(data) {
         </tr>
     `).join("");
 }
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Event Risk
