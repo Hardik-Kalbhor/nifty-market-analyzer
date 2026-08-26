@@ -158,12 +158,20 @@ def _classify_gap(bias: str, text: str) -> str:
         return "Positive"
     if bias == "BEARISH":
         return "Negative"
-    return "Flat"
+def _clean_text(html_or_text: str) -> str:
+    """Strip HTML tags and excess whitespace from RSS summary/title."""
+    if not html_or_text:
+        return ""
+    clean = re.sub(r"<[^>]+>", " ", html_or_text)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    return clean
 
 
 def _first_sentence(text: str, max_len: int = 150) -> str:
-    s = re.split(r"[.!?]", text.strip())[0].strip()
+    cleaned = _clean_text(text)
+    s = re.split(r"[.!?]", cleaned.strip())[0].strip()
     return (s[:max_len] + "...") if len(s) > max_len else s
+
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -451,17 +459,20 @@ def _extract_brokerage_call(article: dict) -> Optional[dict]:
     action = _action_from_text(combined)
 
     target_match = re.search(
-        r"(?:target|TP|price target)[^\d]*₹?\s*(\d[\d,]*)",
+        r"(?:target|TP|price target)[^\d]{1,20}₹?\s*(\d[\d,]{1,6})",
         combined, re.IGNORECASE,
     )
     target_price = None
     if target_match:
         try:
-            target_price = int(target_match.group(1).replace(",", ""))
+            val = int(target_match.group(1).replace(",", ""))
+            if val >= 100:  # Real target prices in INR
+                target_price = val
         except ValueError:
             pass
 
-    thesis = _first_sentence(summary or title, max_len=120)
+    clean_summary = _clean_text(summary)
+    thesis = _first_sentence(clean_summary if len(clean_summary) > 20 else title, max_len=120)
 
     return {
         "institution": institution,
@@ -475,6 +486,7 @@ def _extract_brokerage_call(article: dict) -> Optional[dict]:
         "source_link": article.get("link", "#"),
         "published": article.get("published", ""),
     }
+
 
 
 def _fetch_brokerage_calls() -> list[dict]:
