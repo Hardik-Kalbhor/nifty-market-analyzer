@@ -460,8 +460,9 @@ def scrape_all_news() -> list[dict]:
 
     # Parallel scraping of Google News and Direct RSS feeds
     logger.info("Fetching news feeds concurrently in parallel...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=14) as executor:
         futures = []
+
         for qinfo in GOOGLE_NEWS_RSS_QUERIES:
             futures.append(
                 executor.submit(fetch_google_news_rss, qinfo["query"], qinfo["category"], 6)

@@ -62,12 +62,13 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             f_sig = executor.submit(fetch_all_market_signals)
             f_hw = executor.submit(fetch_heavyweight_stocks)
 
-            done, _ = concurrent.futures.wait([f_news, f_fii, f_sig, f_hw], timeout=9.0)
+            done, _ = concurrent.futures.wait([f_news, f_fii, f_sig, f_hw], timeout=25.0)
 
         news_items = f_news.result() if f_news in done else []
         fii_dii_data = f_fii.result() if f_fii in done else None
         market_signals = f_sig.result() if f_sig in done else {}
         heavyweights = f_hw.result() if f_hw in done else {}
+
 
         # Phase 3: 6-Agent BTST Analysis & Arbiter
         ai_result = analyze_with_ai_agents(news_items, market_signals, fii_dii_data, heavyweights)

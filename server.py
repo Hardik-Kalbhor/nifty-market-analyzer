@@ -77,7 +77,7 @@ def analyze():
             f_signals = executor.submit(fetch_all_market_signals)
             f_hw = executor.submit(fetch_heavyweight_stocks)
 
-            done, _ = concurrent.futures.wait([f_news, f_fii_dii, f_signals, f_hw], timeout=9.0)
+            done, _ = concurrent.futures.wait([f_news, f_fii_dii, f_signals, f_hw], timeout=25.0)
 
         news_items = f_news.result() if f_news in done else []
         fii_dii_data = f_fii_dii.result() if f_fii_dii in done else None
@@ -141,6 +141,8 @@ def analyze():
         result["intraday"] = intraday
         result["fii_dii"] = fii_dii_data
         result["market_signals_detail"] = market_signals
+        result["market_signals"] = market_signals
+        result["heavyweights"] = heavyweights
 
         # Attach cached institutional radar (read-only — written by scheduler)
         try:
