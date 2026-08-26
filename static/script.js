@@ -208,6 +208,7 @@ function renderDashboard(data) {
     renderPredictionHero(data);
     renderInfoStrip(data);
     renderScoreBar(data);
+    renderBtstAgentConsensus(data);
     renderSummary(data);
     renderSignalsTable(data);
     renderEventRisk(data);
@@ -229,6 +230,83 @@ function renderDashboard(data) {
         dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 200);
 }
+
+const _BTST_DIM_META = {
+    macro_global:  { icon: "🌍", label: "Macro & Global Cues" },
+    fii_dii:       { icon: "🏛️", label: "Institutional Flow (FII/DII)" },
+    oi_pcr:        { icon: "📊", label: "Option Chain & Max Pain" },
+    heavyweights:  { icon: "🏢", label: "Top 5 Heavyweights (~39%)" },
+    vix_regime:    { icon: "⚡", label: "Volatility & VIX Regime" },
+    news_catalyst: { icon: "📰", label: "News Catalysts & Sectors" },
+};
+
+function _btstDimBg(verdict, bias) {
+    const text = `${verdict || ""} ${bias || ""}`.toUpperCase();
+    if (text.includes("UP") || text.includes("BULL")) return "rgba(34,197,94,0.12)";
+    if (text.includes("DOWN") || text.includes("BEAR")) return "rgba(239,68,68,0.12)";
+    return "rgba(100,100,100,0.10)";
+}
+
+function _btstDimBorder(verdict, bias) {
+    const text = `${verdict || ""} ${bias || ""}`.toUpperCase();
+    if (text.includes("UP") || text.includes("BULL")) return "rgba(34,197,94,0.35)";
+    if (text.includes("DOWN") || text.includes("BEAR")) return "rgba(239,68,68,0.35)";
+    return "rgba(100,100,100,0.25)";
+}
+
+function renderBtstAgentConsensus(data) {
+    const section = document.getElementById("btst-consensus-section");
+    const grid = document.getElementById("btst-agent-grid");
+    const badge = document.getElementById("btst-confluence-badge");
+
+    if (!section || !grid) return;
+
+    const dims = data.dimension_scores;
+    if (!dims || typeof dims !== "object" || Object.keys(dims).length === 0) {
+        section.style.display = "none";
+        return;
+    }
+
+    section.style.display = "block";
+    grid.innerHTML = "";
+
+    if (badge && data.weighted_confluence) {
+        badge.textContent = `⚖️ ${data.weighted_confluence}`;
+    }
+
+    for (const [dimKey, meta] of Object.entries(_BTST_DIM_META)) {
+        const d = dims[dimKey];
+        if (!d) continue;
+
+        const verdict = (d.verdict || "FLAT").replace(/_/g, " ");
+        const bias = (d.bias || "NEUTRAL").replace(/_/g, " ");
+        const note = d.note || "";
+        const bg = _btstDimBg(verdict, bias);
+        const border = _btstDimBorder(verdict, bias);
+
+        const card = document.createElement("div");
+        card.style.cssText = `
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: ${bg};
+            border: 1px solid ${border};
+            font-size: 0.78rem;
+            line-height: 1.45;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        `;
+        card.innerHTML = `
+            <div style="font-weight:600;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+                <span>${meta.icon} ${meta.label}</span>
+                <span style="font-size:0.72rem;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.08);">${verdict} (${bias})</span>
+            </div>
+            <div style="opacity:0.85;font-size:0.76rem;margin-top:2px;">${note}</div>
+        `;
+        grid.appendChild(card);
+    }
+}
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Prediction Hero (BTST)

@@ -50,15 +50,25 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
     logger.info(f"🚀 Running Automated Schedule [{run_name}] at {now_ist.strftime('%Y-%m-%d %H:%M:%S IST')}")
 
     try:
-        # Phase 1: Scrape news
-        news_items = scrape_all_news()
+        # Phase 1 & 2: Concurrent Data Ingestion (News, FII/DII, Market Signals, Heavyweights)
+        import concurrent.futures
+        from exit_fast_path import fetch_heavyweight_stocks
 
-        # Phase 2: Microstructure signals & FII/DII
-        fii_dii_data = fetch_fii_dii_data()
-        market_signals = fetch_all_market_signals()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            f_news = executor.submit(scrape_all_news)
+            f_fii = executor.submit(fetch_fii_dii_data)
+            f_sig = executor.submit(fetch_all_market_signals)
+            f_hw = executor.submit(fetch_heavyweight_stocks)
 
-        # Phase 3: AI Agent Analysis (strict — no rule-based fallback)
-        ai_result = analyze_with_ai_agents(news_items, market_signals)
+            done, _ = concurrent.futures.wait([f_news, f_fii, f_sig, f_hw], timeout=9.0)
+
+        news_items = f_news.result() if f_news in done else []
+        fii_dii_data = f_fii.result() if f_fii in done else None
+        market_signals = f_sig.result() if f_sig in done else {}
+        heavyweights = f_hw.result() if f_hw in done else {}
+
+        # Phase 3: 6-Agent BTST Analysis & Arbiter
+        ai_result = analyze_with_ai_agents(news_items, market_signals, fii_dii_data, heavyweights)
         if not ai_result:
             raise RuntimeError("AI Agent returned no result. All providers failed or quota exceeded.")
 
@@ -71,6 +81,9 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             "confidence": conf_val,
             "btst_bias": ai_result.get("btst_bias", "NO TRADE"),
             "news_sentiment": ai_result.get("news_sentiment", "MIXED"),
+            "dimension_scores": ai_result.get("dimension_scores", {}),
+            "weighted_confluence": ai_result.get("weighted_confluence", ""),
+            "heavyweights": heavyweights,
             "bullish_factors": ai_result.get("bullish_factors", []),
             "bearish_factors": ai_result.get("bearish_factors", []),
             "key_drivers": (ai_result.get("bullish_factors", []) + ai_result.get("bearish_factors", []))[:4],
@@ -80,6 +93,7 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             "ai_agent_provider": ai_result.get("ai_agent_provider"),
             "total_news_analyzed": len(news_items),
             "analysis_timestamp": now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+
             "scores": {
                 "total_bullish": bull_len if bull_len > 0 else (7 if ai_result.get("prediction") == "GAP UP" else 2),
                 "total_bearish": bear_len if bear_len > 0 else (7 if ai_result.get("prediction") == "GAP DOWN" else 2),

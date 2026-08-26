@@ -64,20 +64,29 @@ def analyze():
     try:
         logger.info("━━━ Starting market analysis ━━━")
 
-        # Phase 1: Scrape news
-        logger.info("Phase 1: Scraping news from all sources...")
-        news_items = scrape_all_news()
-        logger.info(f"Scraped {len(news_items)} news items.")
+        # Phase 1 & 2: Concurrent Data Ingestion (News, FII/DII, Market Signals, Heavyweights)
+        import concurrent.futures
+        from exit_fast_path import fetch_heavyweight_stocks
 
-        # Phase 2: Scrape FII/DII flows & Market Microstructure Signals
-        logger.info("Phase 2: Fetching FII/DII flows and market microstructure signals...")
-        fii_dii_data = fetch_fii_dii_data()
-        market_signals = fetch_all_market_signals()
+        logger.info("Phase 1 & 2: Concurrently fetching news, FII/DII, market signals, and heavyweights...")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            f_news = executor.submit(scrape_all_news)
+            f_fii_dii = executor.submit(fetch_fii_dii_data)
+            f_signals = executor.submit(fetch_all_market_signals)
+            f_hw = executor.submit(fetch_heavyweight_stocks)
 
-        # Phase 3: AI Agent Analysis (No rule-based fallback)
-        logger.info("Phase 3: Running AI Agent analysis (BTST)...")
-        ai_result = analyze_with_ai_agents(news_items, market_signals)
-        
+            done, _ = concurrent.futures.wait([f_news, f_fii_dii, f_signals, f_hw], timeout=9.0)
+
+        news_items = f_news.result() if f_news in done else []
+        fii_dii_data = f_fii_dii.result() if f_fii_dii in done else None
+        market_signals = f_signals.result() if f_signals in done else {}
+        heavyweights = f_hw.result() if f_hw in done else {}
+        logger.info(f"Ingested {len(news_items)} news items, FII/DII: {bool(fii_dii_data)}, Signals: {bool(market_signals)}, Heavyweights: {len(heavyweights)}")
+
+        # Phase 3: 6-Agent BTST Analysis & Arbiter
+        logger.info("Phase 3: Running 6-Agent BTST Swarm analysis...")
+        ai_result = analyze_with_ai_agents(news_items, market_signals, fii_dii_data, heavyweights)
+
         result = analyze_news(
             news_items=news_items,
             gift_nifty_change_pct=market_signals.get("gift_nifty_change_pct"),
@@ -86,8 +95,8 @@ def analyze():
             pcr=market_signals.get("pcr"),
             global_market_changes=market_signals.get("global_market_changes"),
         )
-        
-        # Directly override with AI Agent predictions & reasonings
+
+        # Directly override with 6-Agent Swarm predictions & reasonings
         result["prediction"] = ai_result.get("prediction", result["prediction"])
         result["confidence"] = ai_result.get("confidence", result["confidence"])
         result["btst_bias"] = ai_result.get("btst_bias", result["btst_bias"])
@@ -95,6 +104,9 @@ def analyze():
         result["ai_agent_provider"] = ai_result.get("ai_agent_provider", "AI Agent")
         result["final_summary"] = ai_result.get("reasoning", result["final_summary"])
         result["nifty_heavyweight_impact"] = ai_result.get("nifty_heavyweight_impact", "")
+        result["dimension_scores"] = ai_result.get("dimension_scores", {})
+        result["weighted_confluence"] = ai_result.get("weighted_confluence", "")
+        result["heavyweights"] = heavyweights
         if ai_result.get("bullish_factors"):
             result["bullish_factors"] = ai_result["bullish_factors"]
         if ai_result.get("bearish_factors"):
@@ -102,8 +114,9 @@ def analyze():
 
         logger.info(
             f"BTST Analysis ({result['ai_agent_provider']}) — Prediction: {result['prediction']}, "
-            f"Confidence: {result['confidence']}%"
+            f"Bias: {result['btst_bias']}, Confidence: {result['confidence']}%"
         )
+
 
         # Phase 4: Generate intraday prediction
         logger.info("Phase 4: Generating intraday prediction...")

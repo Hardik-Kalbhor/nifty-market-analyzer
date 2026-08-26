@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=19.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=20.0">
 </head>
 <body>
 
@@ -148,6 +148,22 @@
                 </div>
             </section>
 
+            <!-- 6-Agent BTST Consensus Grid -->
+            <section class="card animate-in animate-in-delay-1" id="btst-consensus-section" style="margin-bottom: 24px;">
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="section-title__icon">🤖</span>
+                        <span>6-Perspective BTST Agent Swarm Consensus</span>
+                    </div>
+                    <div id="btst-confluence-badge" style="font-size:0.78rem;font-weight:600;padding:4px 10px;border-radius:6px;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);color:#a5b4fc;">
+                        6-Agent Swarm
+                    </div>
+                </div>
+                <div id="btst-agent-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
+                    <!-- Dynamically populated via script.js -->
+                </div>
+            </section>
+
             <!-- Summary -->
             <section class="card summary-card animate-in animate-in-delay-2" id="summary-section">
                 <div class="section-title">
@@ -156,6 +172,7 @@
                 </div>
                 <div class="summary-text" id="summary-text"></div>
             </section>
+
 
             <!-- Live Microstructure Signals Table -->
             <section class="animate-in animate-in-delay-2" id="major-drivers-section">
@@ -607,7 +624,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=19.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=20.0"></script>
+
 
 </body>
 </html>
