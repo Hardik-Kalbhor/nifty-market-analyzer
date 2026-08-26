@@ -361,33 +361,44 @@ def _log_exit_audit(entry: dict):
 @app.route("/api/exit-advisor", methods=["POST"])
 def exit_advisor():
     """
-    Evaluates live open positions (BTST / Intraday) with Fast-Path (0-10ms)
-    and Deep AI Reasoning (≤1.5s).
+    Evaluates live open positions (BTST / Intraday) with:
+    - Fast-Path (0-10ms) — 7 deterministic safety rules
+    - Multi-Perspective 6-Agent AI (single enriched Groq call) (≤1.5s)
+    - Weighted conflict resolution + mathematical fallback
     """
     import time
+    import concurrent.futures
     start_t = time.time()
     try:
         payload = request.get_json(force=True) or {}
-        
-        # 1. Fetch live signals
-        market_signals = fetch_all_market_signals()
-        
-        # 2. Scrape top news items
+
+        # 1. Fetch market signals + FII/DII data concurrently (no added latency)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            f_signals = executor.submit(fetch_all_market_signals)
+            f_fii_dii = executor.submit(fetch_fii_dii_data)
+            f_news = executor.submit(scrape_all_news)
+
+            done, _ = concurrent.futures.wait(
+                [f_signals, f_fii_dii, f_news], timeout=8.0
+            )
+
+        market_signals = f_signals.result() if f_signals in done else {}
+        fii_dii_data = f_fii_dii.result() if f_fii_dii in done else None
         try:
-            news_items = scrape_all_news()
+            news_items = f_news.result() if f_news in done else []
         except Exception as e:
             logger.warning(f"News scrape failed for exit advisor: {e}")
             news_items = []
 
-        # 3. Run evaluation (Fast-Path -> Deep AI -> Deterministic Fallback)
+        # 2. Run evaluation (Fast-Path → Multi-Perspective AI → Deterministic Fallback)
         from exit_analyzer import evaluate_exit_with_ai
-        result = evaluate_exit_with_ai(payload, market_signals, news_items)
-        
+        result = evaluate_exit_with_ai(payload, market_signals, news_items, fii_dii_data)
+
         elapsed_ms = round((time.time() - start_t) * 1000, 1)
         result["latency_ms"] = elapsed_ms
         result["timestamp_ist"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 4. Audit Log
+        # 3. Audit Log
         _log_exit_audit({
             "timestamp": result["timestamp_ist"],
             "position": payload,

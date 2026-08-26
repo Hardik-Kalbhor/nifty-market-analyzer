@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=18.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=19.0">
 </head>
 <body>
 
@@ -443,6 +443,19 @@
                             </div>
                         </div>
 
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="dte-input">Days to Expiry (DTE) <span style="font-size:0.75rem;opacity:0.7;">Optional</span></label>
+                                <input type="number" min="0" max="30" step="1" id="dte-input" class="form-control" placeholder="e.g. 3 (0 = expiry day)">
+                            </div>
+                            <div class="form-group" style="display:flex;align-items:flex-end;">
+                                <div id="expiry-day-badge" style="display:none;padding:6px 12px;border-radius:8px;background:rgba(255,170,0,0.15);border:1px solid rgba(255,170,0,0.4);color:#ffaa00;font-size:0.78rem;font-weight:600;">
+                                    ⏰ Today is Expiry Day (Thu)
+                                </div>
+                            </div>
+                        </div>
+
+
                         <div class="exit-form-actions">
                             <button type="submit" class="btn btn-primary" id="btn-evaluate-exit" style="flex: 1;">
                                 <span>🎯</span>
@@ -508,9 +521,26 @@
                             <div class="exit-reasoning-title">💡 Deep AI Reasoning</div>
                             <div class="exit-reasoning-text" id="exit-reasoning-text">--</div>
                         </div>
+
+                        <!-- FII/DII + Expiry Context -->
+                        <div id="exit-fii-dii-row" style="display:none;margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+                            <div id="exit-fii-dii-badge" style="padding:5px 10px;border-radius:8px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);font-size:0.76rem;color:#a5b4fc;">
+                                🏛️ <span id="exit-fii-dii-text">--</span>
+                            </div>
+                            <div id="exit-expiry-badge" style="display:none;padding:5px 10px;border-radius:8px;background:rgba(255,170,0,0.12);border:1px solid rgba(255,170,0,0.3);font-size:0.76rem;color:#ffaa00;">
+                                ⏰ <span id="exit-expiry-text">--</span>
+                            </div>
+                        </div>
+
+                        <!-- 6-Agent Dimension Score Cards -->
+                        <div id="exit-dimension-scores" style="display:none;margin-top:14px;">
+                            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;opacity:0.5;margin-bottom:8px;">🤖 6-Perspective Agent Analysis</div>
+                            <div id="exit-dimension-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
+
 
             <!-- Disclaimer Notice -->
             <div class="exit-disclaimer-notice">
@@ -577,7 +607,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=18.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=19.0"></script>
 
 </body>
 </html>

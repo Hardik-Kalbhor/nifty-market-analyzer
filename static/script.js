@@ -1534,6 +1534,13 @@ async function evaluateLiveExit(showLoadingState = true) {
     const placeholder = document.getElementById("exit-result-placeholder");
     const content = document.getElementById("exit-result-content");
 
+    // Show expiry day badge if today is Thursday (IST)
+    const todayIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const isExpiryDay = todayIST.getDay() === 4; // 0=Sun, 4=Thu
+    const expiryBadgeEl = document.getElementById("expiry-day-badge");
+    if (expiryBadgeEl) expiryBadgeEl.style.display = isExpiryDay ? "block" : "none";
+
+    const dteRaw = document.getElementById("dte-input")?.value;
     const payload = {
         trade_type: document.getElementById("trade-type")?.value || "INTRADAY",
         position_side: document.getElementById("position-side")?.value || "BUY_CE",
@@ -1542,12 +1549,13 @@ async function evaluateLiveExit(showLoadingState = true) {
         entry_premium: parseFloat(document.getElementById("entry-premium")?.value) || 0,
         current_premium: parseFloat(document.getElementById("current-premium")?.value) || 0,
         risk_profile: document.getElementById("risk-profile")?.value || "BALANCED",
-        entry_time: document.getElementById("entry-time")?.value || ""
+        entry_time: document.getElementById("entry-time")?.value || "",
+        dte: (dteRaw !== "" && dteRaw !== undefined && dteRaw !== null) ? parseInt(dteRaw, 10) : null,
     };
 
     if (showLoadingState && submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = `<span>⏳</span><span>Evaluating Exit Signals...</span>`;
+        submitBtn.innerHTML = `<span>⏳</span><span>Running 6-Agent Analysis...</span>`;
     }
 
     try {
@@ -1560,6 +1568,8 @@ async function evaluateLiveExit(showLoadingState = true) {
 
         if (json.status === "success" && json.data) {
             renderExitAdvisorResult(json.data);
+            renderDimensionScores(json.data.dimension_scores);
+            renderFiiDiiContext(json.data.fii_dii_context, json.data.expiry_context);
             if (placeholder) placeholder.style.display = "none";
             if (content) content.style.display = "block";
 
@@ -1582,6 +1592,7 @@ async function evaluateLiveExit(showLoadingState = true) {
         }
     }
 }
+
 
 function renderExitAdvisorResult(data) {
     const verdictTag = document.getElementById("exit-verdict-tag");
@@ -1644,6 +1655,80 @@ function renderExitAdvisorResult(data) {
 
     if (reasoningText) {
         reasoningText.textContent = data.reasoning || "Evaluation based on live market conditions.";
+    }
+}
+
+const _DIMENSION_META = {
+    greeks_decay:  { icon: "📐", label: "Greeks & Decay" },
+    oi_pcr:        { icon: "📊", label: "OI / PCR" },
+    heavyweights:  { icon: "🏛️", label: "Heavyweights" },
+    price_action:  { icon: "📈", label: "Price Action" },
+    vix_regime:    { icon: "⚡", label: "VIX Regime" },
+    macro_global:  { icon: "🌍", label: "Macro & Global" },
+};
+
+function _verdictBg(v) {
+    if (!v) return "rgba(100,100,100,0.1)";
+    const u = v.toUpperCase();
+    if (u.includes("HOLD")) return "rgba(34,197,94,0.12)";
+    if (u.includes("PARTIAL")) return "rgba(234,179,8,0.12)";
+    if (u.includes("TRAIL")) return "rgba(249,115,22,0.12)";
+    if (u.includes("EXIT")) return "rgba(239,68,68,0.12)";
+    return "rgba(100,100,100,0.1)";
+}
+function _verdictBorder(v) {
+    if (!v) return "rgba(100,100,100,0.25)";
+    const u = v.toUpperCase();
+    if (u.includes("HOLD")) return "rgba(34,197,94,0.35)";
+    if (u.includes("PARTIAL")) return "rgba(234,179,8,0.35)";
+    if (u.includes("TRAIL")) return "rgba(249,115,22,0.35)";
+    if (u.includes("EXIT")) return "rgba(239,68,68,0.35)";
+    return "rgba(100,100,100,0.25)";
+}
+
+function renderDimensionScores(dimensionScores) {
+    const container = document.getElementById("exit-dimension-scores");
+    const grid = document.getElementById("exit-dimension-grid");
+    if (!container || !grid) return;
+    if (!dimensionScores || typeof dimensionScores !== "object") {
+        container.style.display = "none";
+        return;
+    }
+    grid.innerHTML = "";
+    let hasAny = false;
+    for (const [dim, meta] of Object.entries(_DIMENSION_META)) {
+        const d = dimensionScores[dim];
+        if (!d) continue;
+        hasAny = true;
+        const bg = _verdictBg(d.verdict);
+        const border = _verdictBorder(d.verdict);
+        const card = document.createElement("div");
+        card.style.cssText = `padding:8px 10px;border-radius:8px;background:${bg};border:1px solid ${border};font-size:0.75rem;line-height:1.5;`;
+        card.innerHTML = `
+            <div style="font-weight:600;margin-bottom:2px;display:flex;justify-content:space-between;">
+                <span>${meta.icon} ${meta.label}</span>
+                <span style="opacity:0.65;font-size:0.7rem;">${(d.verdict || "").replace(/_/g," ")}</span>
+            </div>
+            <div style="opacity:0.8;">${d.note || ""}</div>
+        `;
+        grid.appendChild(card);
+    }
+    container.style.display = hasAny ? "block" : "none";
+}
+
+function renderFiiDiiContext(fiiDiiCtx, expiryCtx) {
+    const row = document.getElementById("exit-fii-dii-row");
+    const fiiText = document.getElementById("exit-fii-dii-text");
+    const expBadge = document.getElementById("exit-expiry-badge");
+    const expText = document.getElementById("exit-expiry-text");
+
+    if (row && fiiDiiCtx) row.style.display = "flex";
+    if (fiiText && fiiDiiCtx) fiiText.textContent = fiiDiiCtx;
+
+    if (expBadge && expiryCtx) {
+        const urgent = expiryCtx.includes("EXPIRY") || expiryCtx.includes("⚠️");
+        expBadge.style.display = urgent ? "block" : "none";
+        if (expText) expText.textContent = expiryCtx.replace(/⚠️\s?/g, "");
     }
 }
 

@@ -7,10 +7,11 @@ import os
 import sys
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 import pytz
 
 from exit_fast_path import evaluate_fast_path, generate_rule_based_fallback, fetch_heavyweight_stocks
-from exit_analyzer import evaluate_exit_with_ai, _validate_and_ground_output
+from exit_analyzer import evaluate_exit_with_ai, _validate_and_ground_output, _resolve_dimension_conflict
 
 
 class TestExitAdvisor(unittest.TestCase):
@@ -122,6 +123,101 @@ class TestExitAdvisor(unittest.TestCase):
         # Should be clamped back near entry spot 24180
         self.assertEqual(grounded["trailing_sl"], 24180.0)
         print("✅ Test 5 Passed: Numerical Grounding clamped hallucinated SL")
+
+    def test_fast_path_pcr_extreme_bullish_trade(self):
+        """Test 6: PCR < 0.70 (extreme bear wall) + bullish trade → TRAIL_SL_TIGHT."""
+        position = {
+            "trade_type": "INTRADAY",
+            "position_side": "BUY_CE",
+            "entry_spot": 24200,
+            "entry_premium": 90,
+            "current_premium": 110,
+        }
+        live_signals = {
+            "nifty_spot": 24250,
+            "india_vix": 12.5,
+            "india_vix_change_pct": 0.3,
+            "pcr": 0.62,  # Extreme bearish PCR → resistance ceiling
+            "top_oi_call_strike": 24500,
+            "top_oi_put_strike": 24000,
+        }
+        res = evaluate_fast_path(position, live_signals)
+        self.assertIsNotNone(res, "PCR < 0.70 with bullish trade must trigger a fast-path result")
+        self.assertEqual(res["verdict"], "TRAIL_SL_TIGHT")
+        self.assertIn("PCR", res["engine"])
+        print(f"✅ Test 6 Passed: PCR extreme ({live_signals['pcr']}) triggered {res['verdict']} for BUY_CE")
+
+    def test_fast_path_oi_wall_proximity(self):
+        """Test 7: Spot within 35pts of top OI Call strike + bullish → TRAIL_SL_TIGHT."""
+        position = {
+            "trade_type": "INTRADAY",
+            "position_side": "BUY_CE",
+            "entry_spot": 24200,
+            "entry_premium": 85,
+            "current_premium": 120,
+        }
+        live_signals = {
+            "nifty_spot": 24465,        # Only 35pts below the 24500 OI wall
+            "india_vix": 12.0,
+            "india_vix_change_pct": 0.1,
+            "pcr": 1.05,                # Neutral PCR (won't trigger PCR rule)
+            "top_oi_call_strike": 24500,
+            "top_oi_put_strike": 24000,
+        }
+        res = evaluate_fast_path(position, live_signals)
+        self.assertIsNotNone(res, "OI wall proximity (35pts) must trigger fast-path result")
+        self.assertEqual(res["verdict"], "TRAIL_SL_TIGHT")
+        self.assertIn("OI", res["engine"])
+        print(f"✅ Test 7 Passed: OI Wall proximity (35pts) triggered {res['verdict']} for BUY_CE")
+
+    def test_fast_path_expiry_day_short_profit_lock(self):
+        """Test 8: Thursday (expiry day) + SHORT_CE + 42% profit → PARTIAL_BOOK_70."""
+        position = {
+            "trade_type": "INTRADAY",
+            "position_side": "SHORT_CE",
+            "entry_spot": 24300,
+            "entry_premium": 95.0,
+            "current_premium": 55.1,   # 42% decay → strong profit
+        }
+        live_signals = {
+            "nifty_spot": 24250,
+            "india_vix": 11.8,
+            "india_vix_change_pct": 0.4,
+            "pcr": 1.05,
+            "top_oi_call_strike": 24500,
+            "top_oi_put_strike": 24000,
+        }
+        # Patch is_expiry_day() to return True (simulate Thursday)
+        with patch("exit_fast_path.is_expiry_day", return_value=True):
+            res = evaluate_fast_path(position, live_signals)
+
+        self.assertIsNotNone(res, "Expiry day + SHORT_CE + 42% profit must trigger fast-path")
+        self.assertEqual(res["verdict"], "PARTIAL_BOOK_70")
+        self.assertTrue(res.get("is_expiry_day"), "Result must carry is_expiry_day=True flag")
+        print(f"✅ Test 8 Passed: Expiry Day Theta Lock triggered {res['verdict']} for SHORT_CE (+42% profit)")
+
+    def test_conflict_resolution_override(self):
+        """Test 9: Weighted conflict resolver upgrades HOLD to TRAIL_SL_TIGHT when agents disagree."""
+        ai_output = {
+            "verdict": "HOLD_AND_RIDE",  # AI says hold
+            "confidence": 72,
+            "trailing_sl": 24150,
+            "reasoning": "Market looks stable.",
+            "dimension_scores": {
+                # Majority agents say TRAIL or EXIT
+                "greeks_decay":  {"verdict": "TRAIL",  "note": "Near expiry, theta burning."},
+                "vix_regime":    {"verdict": "TRAIL",  "note": "VIX rising."},
+                "oi_pcr":        {"verdict": "EXIT",   "note": "PCR 0.65, heavy call wall."},
+                "price_action":  {"verdict": "TRAIL",  "note": "Bearish engulfing on 15min."},
+                "heavyweights":  {"verdict": "HOLD",   "note": "HDFC flat."},
+                "macro_global":  {"verdict": "HOLD",   "note": "Global cues neutral."},
+            }
+        }
+        resolved = _resolve_dimension_conflict(ai_output)
+        # With 4 agents at severity 3-5 and 2 at 0, avg > 2 → should override HOLD (severity 0)
+        self.assertNotEqual(resolved["verdict"], "HOLD_AND_RIDE", "Conflict resolver must override HOLD when majority say TRAIL/EXIT")
+        self.assertTrue(resolved.get("conflict_resolved"), "conflict_resolved flag must be True when overridden")
+        print(f"✅ Test 9 Passed: Conflict Resolution overrode HOLD_AND_RIDE → {resolved['verdict']}")
 
 
 if __name__ == "__main__":

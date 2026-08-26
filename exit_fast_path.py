@@ -24,6 +24,13 @@ except ImportError:
 logger = logging.getLogger("ExitFastPath")
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 
+
+def is_expiry_day() -> bool:
+    """Returns True if today is Thursday (NIFTY 50 weekly expiry day in IST)."""
+    now_ist = datetime.now(TIMEZONE)
+    return now_ist.weekday() == 3  # 0=Mon, 3=Thu
+
+
 # Top 5 NIFTY heavyweights accounting for ~39% index weight
 HEAVYWEIGHT_TICKERS = {
     "HDFCBANK.NS": {"name": "HDFC Bank", "weight": 11.5},
@@ -189,7 +196,110 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
                 "is_fast_path": True,
             }
 
+    # 5. Expiry Day Theta Profit Lock (Thursday only — short sellers)
+    # On expiry day, theta collapses dramatically in the last 2 hours.
+    # If a short option seller is already at +40%+ profit, lock it before whipsaw.
+    if is_expiry_day() and entry_premium > 0 and current_premium > 0:
+        is_short = side in ["SHORT_CE", "SHORT_PE"]
+        if is_short:
+            prem_pnl_pct = ((entry_premium - current_premium) / entry_premium) * 100
+            if prem_pnl_pct >= 40.0:
+                return {
+                    "verdict": "PARTIAL_BOOK_70",
+                    "action": f"EXPIRY DAY: Book 70% profit now (premium decayed {prem_pnl_pct:.1f}%). Trail remaining 30% with tight SL.",
+                    "confidence": 88,
+                    "urgency": "HIGH",
+                    "engine": "Deterministic Fast-Path (Expiry Day Theta Lock)",
+                    "reasoning": (
+                        f"Today is weekly NIFTY expiry day (Thursday). Premium has decayed {prem_pnl_pct:.1f}% "
+                        f"(₹{entry_premium} → ₹{current_premium}). Theta collapse accelerates sharply post-13:00 IST — "
+                        f"lock the majority of gains before option expiry volatility whipsaw."
+                    ),
+                    "trailing_sl": round(current_spot, 2) if current_spot > 0 else round(entry_spot, 2),
+                    "is_fast_path": True,
+                    "is_expiry_day": True,
+                }
+
+    # 6. PCR Extreme — Option Chain Sentiment Warning
+    # PCR < 0.70: heavy call writing = bearish market structure (resistance ahead for bulls)
+    # PCR > 1.50: heavy put writing = bullish market structure (support for bulls, resistance for bears)
+    pcr = float(live_signals.get("pcr") or 1.05)
+    is_bullish_trade = side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"]
+    is_bearish_trade = side in ["BUY_PE", "SHORT_FUTURES", "SHORT_CE"]
+
+    if pcr < 0.70 and is_bullish_trade and current_spot > 0:
+        return {
+            "verdict": "TRAIL_SL_TIGHT",
+            "action": f"Tighten stop-loss immediately. PCR at {pcr:.2f} signals aggressive call writers building a resistance ceiling.",
+            "confidence": 78,
+            "urgency": "MEDIUM",
+            "engine": "Deterministic Fast-Path (PCR Extreme Bear Wall)",
+            "reasoning": (
+                f"PCR is at {pcr:.2f} (extreme bearish zone < 0.70). Aggressive call writers are building "
+                f"a strong resistance ceiling above current spot {current_spot}. Bullish trade momentum at risk. "
+                f"Trail stop-loss tightly to protect existing gains."
+            ),
+            "trailing_sl": round(current_spot * 0.9985, 1),
+            "is_fast_path": True,
+        }
+
+    if pcr > 1.50 and is_bearish_trade and current_spot > 0:
+        return {
+            "verdict": "TRAIL_SL_TIGHT",
+            "action": f"Tighten stop-loss immediately. PCR at {pcr:.2f} signals heavy put writing forming a support floor.",
+            "confidence": 78,
+            "urgency": "MEDIUM",
+            "engine": "Deterministic Fast-Path (PCR Extreme Bull Floor)",
+            "reasoning": (
+                f"PCR is at {pcr:.2f} (extreme bullish zone > 1.50). Put writers are forming a strong support floor "
+                f"below current spot {current_spot}. Bearish trade momentum at risk. Trail stop-loss tightly."
+            ),
+            "trailing_sl": round(current_spot * 1.0015, 1),
+            "is_fast_path": True,
+        }
+
+    # 7. OI Wall Proximity — Spot approaching major resistance/support
+    top_oi_call = live_signals.get("top_oi_call_strike")
+    top_oi_put = live_signals.get("top_oi_put_strike")
+
+    if current_spot > 0 and top_oi_call and is_bullish_trade:
+        gap_to_call_wall = float(top_oi_call) - current_spot
+        if 0 < gap_to_call_wall <= 50:
+            return {
+                "verdict": "TRAIL_SL_TIGHT",
+                "action": f"Spot is {gap_to_call_wall:.0f}pts from max OI Call wall at {top_oi_call}. Tighten stop — resistance zone ahead.",
+                "confidence": 80,
+                "urgency": "MEDIUM",
+                "engine": "Deterministic Fast-Path (OI Resistance Wall)",
+                "reasoning": (
+                    f"Current NIFTY spot ({current_spot}) is only {gap_to_call_wall:.0f}pts away from the "
+                    f"highest Call OI strike at {top_oi_call}, which acts as a strong resistance wall. "
+                    f"Bullish momentum likely to stall here. Trail stop-loss to protect gains."
+                ),
+                "trailing_sl": round(current_spot * 0.9985, 1),
+                "is_fast_path": True,
+            }
+
+    if current_spot > 0 and top_oi_put and is_bearish_trade:
+        gap_to_put_wall = current_spot - float(top_oi_put)
+        if 0 < gap_to_put_wall <= 50:
+            return {
+                "verdict": "TRAIL_SL_TIGHT",
+                "action": f"Spot is {gap_to_put_wall:.0f}pts from max OI Put wall at {top_oi_put}. Tighten stop — support zone ahead.",
+                "confidence": 80,
+                "urgency": "MEDIUM",
+                "engine": "Deterministic Fast-Path (OI Support Wall)",
+                "reasoning": (
+                    f"Current NIFTY spot ({current_spot}) is only {gap_to_put_wall:.0f}pts above the "
+                    f"highest Put OI strike at {top_oi_put}, which acts as a strong support wall. "
+                    f"Bearish momentum likely to stall here. Trail stop-loss to protect gains."
+                ),
+                "trailing_sl": round(current_spot * 1.0015, 1),
+                "is_fast_path": True,
+            }
+
     return None
+
 
 
 def generate_rule_based_fallback(
