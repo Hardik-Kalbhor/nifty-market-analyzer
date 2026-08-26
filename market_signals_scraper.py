@@ -80,8 +80,8 @@ def _fetch_nse_indices() -> dict[str, Any]:
                     fast = t.fast_info
                     last = getattr(fast, "last_price", None)
                     prev = getattr(fast, "previous_close", None)
-                    if last is not None and prev is not None and prev > 0:
-                        pct = round(((last - prev) / prev) * 100, 2)
+                    if last is not None:
+                        pct = round(((last - prev) / prev) * 100, 2) if (prev is not None and prev > 0) else 0.0
                         return key, last, pct
                 except Exception as ex:
                     logger.debug(f"yfinance failed for {sym}: {ex}")

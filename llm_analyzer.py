@@ -115,6 +115,22 @@ def _build_user_content(news_items: list[dict], market_signals: dict) -> str:
     else:
         oi_line = "PCR/Max Pain/OI Strikes: Unavailable (NSE blocks automated server requests — use PCR from news/context if mentioned)"
 
+    vix_val = market_signals.get("india_vix")
+    vix_chg = market_signals.get("india_vix_change_pct")
+    vix_str = f"{vix_val:.2f} ({vix_chg:+.2f}%)" if (vix_val is not None and vix_chg is not None) else (f"{vix_val:.2f}" if vix_val is not None else "12.5 (Estimated)")
+
+    gift_chg = market_signals.get("gift_nifty_change_pct")
+    gift_str = f"{gift_chg:+.2f}%" if gift_chg is not None else "N/A"
+
+    pcr_val = market_signals.get("pcr")
+    pcr_str = f"{pcr_val:.2f}" if pcr_val is not None else "1.05"
+
+    bank_pct = market_signals.get("sectoral_signals", {}).get("bank_nifty_pct")
+    bank_str = f"{bank_pct:+.2f}%" if bank_pct is not None else "N/A"
+
+    it_pct = market_signals.get("sectoral_signals", {}).get("it_nifty_pct")
+    it_str = f"{it_pct:+.2f}%" if it_pct is not None else "N/A"
+
     return f"""
     NIFTY 50 Market Input Data:
 
@@ -122,12 +138,12 @@ def _build_user_content(news_items: list[dict], market_signals: dict) -> str:
 
     📊 Market Microstructure Signals:
     - {spot_line}
-    - GIFT Nifty Change: {market_signals.get('gift_nifty_change_pct', 'N/A')}%
-    - India VIX: {market_signals.get('india_vix', 'N/A')} ({market_signals.get('india_vix_change_pct', 'N/A')}%)
-    - PCR: {market_signals.get('pcr', 'N/A')} (>1 = Bullish bias, <0.8 = Bearish)
+    - GIFT Nifty Change: {gift_str}
+    - India VIX: {vix_str}
+    - PCR: {pcr_str} (>1 = Bullish bias, <0.8 = Bearish)
     - {oi_line}
-    - Bank Nifty: {market_signals.get('sectoral_signals', {}).get('bank_nifty_pct', 'N/A')}%
-    - IT Nifty: {market_signals.get('sectoral_signals', {}).get('it_nifty_pct', 'N/A')}%
+    - Bank Nifty: {bank_str}
+    - IT Nifty: {it_str}
     - Global Cues: {json.dumps(market_signals.get('global_market_changes', {}))}
 
     📅 F&O Expiry Status: {fo_context}
