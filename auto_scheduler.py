@@ -11,6 +11,8 @@ from fii_dii_scraper import fetch_fii_dii_data
 from market_signals_scraper import fetch_all_market_signals
 from llm_analyzer import analyze_with_ai_agents
 from intraday_analyzer import generate_intraday_prediction
+from institutional_scraper import get_cached_institutional_radar, save_institutional_radar_cache, fetch_institutional_radar
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("AutoScheduler")
@@ -141,6 +143,18 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
             "executed_at_ist": now_ist.strftime("%Y-%m-%d %H:%M:%S IST"),
         }
 
+        # Phase 5: Refresh Institutional BTST Radar (scheduled cache)
+        nifty_spot = market_signals.get("nifty_spot") if market_signals else None
+        try:
+            logger.info("🏛️ Phase 5: Refreshing Institutional BTST Radar cache...")
+            inst_radar = fetch_institutional_radar(nifty_spot=nifty_spot)
+            save_institutional_radar_cache(inst_radar, HISTORY_DIR)
+            result["institutional_radar"] = inst_radar
+            logger.info(f"✅ Institutional Radar cached: {inst_radar.get('consensus_bias')} consensus")
+        except Exception as inst_err:
+            logger.warning(f"Institutional Radar refresh failed (non-critical): {inst_err}")
+            result["institutional_radar"] = {}
+
         # Save to history directory
         filepath = os.path.join(HISTORY_DIR, f"analysis_{timestamp_str}.json")
         with open(filepath, "w", encoding="utf-8") as f:
@@ -161,6 +175,7 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
     except Exception as e:
         logger.error(f"❌ Automated Run [{run_name}] failed: {e}")
         return None
+
 
 
 

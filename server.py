@@ -17,6 +17,8 @@ from intraday_analyzer import generate_intraday_prediction
 from fii_dii_scraper import fetch_fii_dii_data
 from market_signals_scraper import fetch_all_market_signals
 from llm_analyzer import analyze_with_ai_agents, GeminiQuotaError
+from institutional_scraper import get_cached_institutional_radar
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -140,6 +142,12 @@ def analyze():
         result["fii_dii"] = fii_dii_data
         result["market_signals_detail"] = market_signals
 
+        # Attach cached institutional radar (read-only — written by scheduler)
+        try:
+            result["institutional_radar"] = get_cached_institutional_radar(get_history_dir(), force_refresh=False)
+        except Exception:
+            result["institutional_radar"] = {}
+
         # Save manual run to history directory
         try:
             import pytz
@@ -206,9 +214,26 @@ def get_history_dir():
         return tmp_dir
 
 
+@app.route("/api/institutional-radar", methods=["GET"])
+def get_institutional_radar():
+    """
+    Serve cached Institutional BTST & Next-Day Prediction Radar.
+    Data is written by auto_scheduler.py on its 5 daily runs.
+    This endpoint reads from disk — zero scraping, zero latency.
+    """
+    try:
+        history_dir = get_history_dir()
+        radar = get_cached_institutional_radar(history_dir, force_refresh=False)
+        return jsonify({"status": "ok", "data": radar})
+    except Exception as e:
+        logger.error(f"/api/institutional-radar failed: {e}")
+        return jsonify({"status": "ok", "data": {}})
+
+
 @app.route("/api/history", methods=["GET"])
 def get_history():
     """List all saved historical analysis runs split into Scheduled vs Manual columns."""
+
     try:
         history_dirs = [get_history_dir()]
         if "/tmp/history" not in history_dirs and os.path.exists("/tmp/history"):
@@ -339,7 +364,11 @@ def _normalize_history_data(data: dict) -> dict:
     if "sector_summary" not in data or not isinstance(data.get("sector_summary"), list):
         data["sector_summary"] = []
 
+    if "institutional_radar" not in data:
+        data["institutional_radar"] = {}
+
     return data
+
 
 
 @app.route("/api/history/<filename>", methods=["GET"])

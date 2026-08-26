@@ -1916,3 +1916,140 @@ body::before {
     .header__badges { display: none; }
 }
 
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Institutional BTST Radar — Tab Switcher & Matrix
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.inst-tab-switcher { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+
+.inst-tab-btn {
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+    font-size: 0.80rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+}
+
+.inst-tab-btn.active {
+    background: rgba(99,102,241,0.18);
+    border-color: rgba(99,102,241,0.42);
+    color: #a5b4fc;
+}
+
+.inst-tab-btn:hover:not(.active) {
+    background: rgba(255,255,255,0.07);
+    color: var(--text-primary);
+    border-color: rgba(255,255,255,0.16);
+}
+
+.inst-matrix-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.inst-matrix-table, .inst-brokerage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    min-width: 640px;
+}
+
+.inst-matrix-table th, .inst-brokerage-table th {
+    padding: 11px 16px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    font-size: 0.73rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+    text-align: left;
+}
+
+.inst-matrix-table td, .inst-brokerage-table td {
+    padding: 11px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    vertical-align: middle;
+    line-height: 1.5;
+}
+
+.inst-matrix-table tr:last-child td, .inst-brokerage-table tr:last-child td { border-bottom: none; }
+
+.inst-level-col, .inst-matrix-table td:first-child {
+    position: sticky;
+    left: 0;
+    background: #0c0c1d;
+    z-index: 2;
+    min-width: 170px;
+    max-width: 180px;
+    font-weight: 700;
+    font-size: 0.80rem;
+    white-space: nowrap;
+    border-right: 1px solid rgba(255,255,255,0.08);
+}
+
+.inst-row-r2 td, .inst-row-r1 td { background: rgba(239,68,68,0.04); }
+.inst-row-s1 td, .inst-row-s2 td { background: rgba(34,197,94,0.04); }
+.inst-row-r1 td:first-child, .inst-row-r2 td:first-child { background: #100d0d; }
+.inst-row-s1 td:first-child, .inst-row-s2 td:first-child { background: #0b0f0b; }
+
+.inst-row-spot td {
+    background: rgba(251,191,36,0.05);
+    border-top: 1px solid rgba(251,191,36,0.25) !important;
+    border-bottom: 1px solid rgba(251,191,36,0.25) !important;
+    font-weight: 800;
+    font-size: 0.88rem;
+}
+
+.inst-row-spot td:first-child { background: #100f09; }
+
+.inst-bias-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.inst-bias-bull  { background: rgba(34,197,94,0.14);  color: #86efac; border: 1px solid rgba(34,197,94,0.28); }
+.inst-bias-bear  { background: rgba(239,68,68,0.14);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.28); }
+.inst-bias-range { background: rgba(251,191,36,0.14); color: #fde68a; border: 1px solid rgba(251,191,36,0.28); }
+
+.inst-confluence-zone { font-weight: 700; font-size: 0.84rem; }
+.inst-conf-r { color: #f87171; }
+.inst-conf-s { color: #4ade80; }
+.inst-conf-spot { color: #fbbf24; font-size: 1.0rem; }
+
+.inst-action {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.inst-action-buy     { background: rgba(34,197,94,0.14);   color: #86efac; }
+.inst-action-hold    { background: rgba(251,191,36,0.14);  color: #fde68a; }
+.inst-action-sell    { background: rgba(239,68,68,0.14);   color: #fca5a5; }
+.inst-action-upgrade { background: rgba(129,140,248,0.14); color: #c7d2fe; }
+.inst-action-cut     { background: rgba(251,146,60,0.14);  color: #fed7aa; }
+
+.inst-thesis-text {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.45;
+}
+
+.inst-empty { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 0.82rem; }

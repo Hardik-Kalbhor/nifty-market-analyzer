@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=21.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=22.0">
 </head>
 <body>
 
@@ -161,6 +161,61 @@
                 </div>
                 <div id="btst-agent-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
                     <!-- Dynamically populated via script.js -->
+                </div>
+            </section>
+
+            <!-- ━━ Institutional BTST & Next-Day Prediction Radar ━━ -->
+            <section class="card animate-in animate-in-delay-2" id="institutional-radar-section" style="display:none;padding:20px 20px 16px;">
+                <div class="section-title" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+                    <span class="section-title__icon">🏛️</span>
+                    <span>Institutional BTST &amp; Next-Day Prediction Radar</span>
+                    <span id="inst-consensus-badge" style="margin-left:auto;font-size:0.78rem;font-weight:700;padding:4px 12px;border-radius:20px;background:rgba(100,100,100,0.2);color:var(--text-muted);">Loading...</span>
+                </div>
+                <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:14px;">
+                    ⏰ <span id="inst-radar-timestamp">Scheduled cache</span> &nbsp;·&nbsp; Providers in columns &nbsp;·&nbsp; Next-day S/R levels in rows
+                </div>
+
+                <!-- Sub-panel tab switcher -->
+                <div class="inst-tab-switcher" id="inst-tab-switcher">
+                    <button class="inst-tab-btn active" data-tab="matrix">📊 Tactical Next-Day Confluence Matrix</button>
+                    <button class="inst-tab-btn" data-tab="brokerage">🏢 Heavyweight Brokerage Radar</button>
+                </div>
+
+                <!-- Panel 1: S/R Confluence Matrix Table (Providers in columns, Levels in rows) -->
+                <div class="inst-panel" id="inst-panel-matrix">
+                    <div class="inst-matrix-scroll">
+                        <table class="inst-matrix-table">
+                            <thead>
+                                <tr id="inst-matrix-header">
+                                    <th class="inst-level-col">Level / Dimension</th>
+                                    <!-- Provider columns added dynamically by JS -->
+                                </tr>
+                            </thead>
+                            <tbody id="inst-matrix-body">
+                                <!-- Rows added dynamically by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Panel 2: Heavyweight Brokerage Radar -->
+                <div class="inst-panel" id="inst-panel-brokerage" style="display:none;">
+                    <div class="inst-matrix-scroll">
+                        <table class="inst-brokerage-table">
+                            <thead>
+                                <tr>
+                                    <th>🏛️ Institution</th>
+                                    <th>Stock / Index</th>
+                                    <th>Action</th>
+                                    <th>Target &amp; Upside</th>
+                                    <th>Sector Impact</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inst-brokerage-body">
+                                <!-- Rows added dynamically by JS -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </section>
 
@@ -624,7 +679,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=21.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=22.0"></script>
 
 
 

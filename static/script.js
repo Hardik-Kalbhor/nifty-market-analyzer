@@ -225,7 +225,9 @@ function renderDashboard(data) {
     safeExec(renderInfoStrip, "renderInfoStrip");
     safeExec(renderScoreBar, "renderScoreBar");
     safeExec(renderBtstAgentConsensus, "renderBtstAgentConsensus");
+    safeExec(renderInstitutionalRadar, "renderInstitutionalRadar");
     safeExec(renderSummary, "renderSummary");
+
     safeExec(renderSignalsTable, "renderSignalsTable");
     safeExec(renderEventRisk, "renderEventRisk");
     safeExec(renderKeyDrivers, "renderKeyDrivers");
@@ -1863,3 +1865,244 @@ function renderFiiDiiContext(fiiDiiCtx, expiryCtx) {
 document.addEventListener("DOMContentLoaded", () => {
     initExitAdvisor();
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Institutional BTST & Next-Day Prediction Radar
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const _INST_PROVIDERS = [
+    { key: "religare",    label: "Religare\n(Ajit Mishra)" },
+    { key: "anand_rathi", label: "Anand Rathi\nResearch" },
+    { key: "hdfc_sec",    label: "HDFC\nSecurities" },
+    { key: "indiacharts", label: "IndiaCharts\n(Rohit S.)" },
+    { key: "consensus",   label: "🧭 Street\nConsensus" },
+];
+
+const _MATRIX_ROWS = [
+    { key: "next_day_bias", label: "🧭 Next-Day Bias",    cls: "inst-row-bias",  field: "next_day_bias" },
+    { key: "r2",            label: "🎯 R2 Resistance",    cls: "inst-row-r2",   field: "r2" },
+    { key: "r1",            label: "📈 R1 Resistance",    cls: "inst-row-r1",   field: "r1" },
+    { key: "spot",          label: "◆ Live NIFTY Spot",  cls: "inst-row-spot", field: "__spot__" },
+    { key: "s1",            label: "🛡️ S1 Support",       cls: "inst-row-s1",   field: "s1" },
+    { key: "s2",            label: "🛑 S2 Support",       cls: "inst-row-s2",   field: "s2" },
+    { key: "gap",           label: "🔁 Expected Gap",     cls: "inst-row-bias", field: "expected_gap" },
+    { key: "thesis",        label: "📝 BTST Thesis",      cls: "",               field: "thesis" },
+];
+
+function _instBiasPill(bias) {
+    if (!bias) return '<span class="inst-bias-pill inst-bias-range">—</span>';
+    const b = String(bias).toUpperCase();
+    if (b.includes("BULL"))  return `<span class="inst-bias-pill inst-bias-bull">🟢 BULLISH</span>`;
+    if (b.includes("BEAR"))  return `<span class="inst-bias-pill inst-bias-bear">🔴 BEARISH</span>`;
+    return `<span class="inst-bias-pill inst-bias-range">⚖️ RANGEBOUND</span>`;
+}
+
+function _instGapPill(gap) {
+    if (!gap) return '—';
+    const g = String(gap).toUpperCase();
+    if (g.includes("POS") || g.includes("UP"))  return `<span class="inst-bias-pill inst-bias-bull">⬆️ Positive Gap</span>`;
+    if (g.includes("NEG") || g.includes("DOWN")) return `<span class="inst-bias-pill inst-bias-bear">⬇️ Negative Gap</span>`;
+    return `<span class="inst-bias-pill inst-bias-range">↔️ Flat</span>`;
+}
+
+function _formatLevel(val) {
+    if (!val && val !== 0) return '<span style="color:var(--text-muted);">—</span>';
+    const s = String(val);
+    // Zone string like "24100 — 24350"
+    if (s.includes("—") || s.includes("-")) {
+        const parts = s.split(/[—\-]/);
+        return parts.map(p => {
+            const n = parseInt(p.replace(/,/g, "").trim());
+            return isNaN(n) ? p.trim() : `<span class="inst-confluence-zone inst-conf-r">₹${n.toLocaleString("en-IN")}</span>`;
+        }).join('<span style="color:var(--text-muted);padding:0 4px;">–</span>');
+    }
+    const n = parseInt(s.replace(/,/g, "").trim());
+    if (isNaN(n)) return val;
+    return `<span class="inst-confluence-zone">₹${n.toLocaleString("en-IN")}</span>`;
+}
+
+function _instActionBadge(action) {
+    if (!action) return '—';
+    const a = action.toUpperCase();
+    if (a.includes("BUY"))     return `<span class="inst-action inst-action-buy">BUY</span>`;
+    if (a.includes("SELL"))    return `<span class="inst-action inst-action-sell">SELL</span>`;
+    if (a.includes("UPGRADE")) return `<span class="inst-action inst-action-upgrade">UPGRADE</span>`;
+    if (a.includes("CUT") || a.includes("REDUCE")) return `<span class="inst-action inst-action-cut">TARGET CUT</span>`;
+    if (a.includes("RAISED"))  return `<span class="inst-action inst-action-upgrade">TARGET RAISED</span>`;
+    if (a.includes("HOLD") || a.includes("NEUTRAL")) return `<span class="inst-action inst-action-hold">HOLD</span>`;
+    return `<span class="inst-action inst-action-hold">${action}</span>`;
+}
+
+function renderInstitutionalRadar(data) {
+    const radar = data && data.institutional_radar;
+    const section = document.getElementById("institutional-radar-section");
+    if (!section) return;
+
+    // Always show the section (even if empty to display skeleton)
+    section.style.display = "";
+
+    if (!radar || Object.keys(radar).length === 0) {
+        // Show awaiting cache state
+        document.getElementById("inst-matrix-body").innerHTML =
+            `<tr><td colspan="6" class="inst-empty">
+                ⏰ Awaiting first scheduled run (08:30 / 15:15 / 17:30 IST).<br>
+                <small>Institutional predictions are refreshed automatically — no data during market hours before first run.</small>
+            </td></tr>`;
+        document.getElementById("inst-brokerage-body").innerHTML =
+            `<tr><td colspan="5" class="inst-empty">No brokerage calls cached yet.</td></tr>`;
+        return;
+    }
+
+    // ─── Tab Switcher Wiring ───────────────────────────────────────────────
+    const tabBtns = document.querySelectorAll(".inst-tab-btn");
+    tabBtns.forEach(btn => {
+        btn.onclick = () => {
+            tabBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            const tab = btn.dataset.tab;
+            document.getElementById("inst-panel-matrix").style.display   = tab === "matrix"   ? "" : "none";
+            document.getElementById("inst-panel-brokerage").style.display = tab === "brokerage" ? "" : "none";
+        };
+    });
+
+    // ─── Consensus Badge ──────────────────────────────────────────────────
+    const consensusBias = radar.consensus_bias || "RANGEBOUND";
+    const bullPct = radar.bull_pct || 0;
+    const badge = document.getElementById("inst-consensus-badge");
+    if (badge) {
+        const b = consensusBias.toUpperCase();
+        let bg = "rgba(251,191,36,0.15)";
+        let color = "#fde68a";
+        if (b.includes("BULL")) { bg = "rgba(34,197,94,0.15)"; color = "#86efac"; }
+        if (b.includes("BEAR")) { bg = "rgba(239,68,68,0.15)";  color = "#fca5a5"; }
+        badge.style.background = bg;
+        badge.style.color = color;
+        badge.textContent = `${bullPct}% Bullish · ${consensusBias}`;
+    }
+
+    // ─── Timestamp ────────────────────────────────────────────────────────
+    const tsEl = document.getElementById("inst-radar-timestamp");
+    if (tsEl && radar.fetched_at_ist) tsEl.textContent = `Cached: ${radar.fetched_at_ist}`;
+
+    // ─── Matrix Table: Providers in columns, Levels in rows ───────────────
+    const providerCalls = radar.provider_calls || {};
+    const consensus = radar.consensus || {};
+    const niftySpot = radar.nifty_spot;
+
+    // Build header columns
+    const headerRow = document.getElementById("inst-matrix-header");
+    if (headerRow) {
+        let headHtml = `<th class="inst-level-col">Level / Dimension</th>`;
+        _INST_PROVIDERS.forEach(p => {
+            headHtml += `<th style="text-align:center;white-space:pre-line;">${p.label.replace(/\n/g, "<br>")}</th>`;
+        });
+        headerRow.innerHTML = headHtml;
+    }
+
+    // Build matrix body rows
+    const tbody = document.getElementById("inst-matrix-body");
+    if (!tbody) return;
+
+    let bodyHtml = "";
+
+    _MATRIX_ROWS.forEach(row => {
+        bodyHtml += `<tr class="${row.cls}">`;
+        bodyHtml += `<td>${row.label}</td>`;
+
+        _INST_PROVIDERS.forEach(p => {
+            const call = p.key === "consensus" ? consensus : (providerCalls[p.key] || {});
+            let cellHtml = "";
+
+            if (row.field === "__spot__") {
+                // Spot row: same for all columns
+                if (niftySpot) {
+                    cellHtml = `<span class="inst-conf-spot">₹${Number(niftySpot).toLocaleString("en-IN")}</span>`;
+                } else {
+                    cellHtml = `<span style="color:var(--text-muted);">Live data</span>`;
+                }
+            } else if (row.field === "next_day_bias") {
+                cellHtml = _instBiasPill(call[row.field]);
+            } else if (row.field === "expected_gap") {
+                cellHtml = _instGapPill(call[row.field]);
+            } else if (row.field === "thesis") {
+                const t = call.thesis || "";
+                const link = call.source_link && call.source_link !== "#"
+                    ? `<a href="${call.source_link}" target="_blank" rel="noopener" style="color:rgba(165,180,252,0.6);font-size:0.7rem;"> [src]</a>`
+                    : "";
+                cellHtml = t
+                    ? `<span class="inst-thesis-text">${t}${link}</span>`
+                    : `<span style="color:var(--text-muted);">—</span>`;
+            } else {
+                // S1, S2, R1, R2
+                const val = call[row.field];
+                const isR = row.key.startsWith("r");
+                const formatted = _formatLevel(val);
+                if (val) {
+                    cellHtml = `<span class="${isR ? 'inst-conf-r' : 'inst-conf-s'}">${formatted}</span>`;
+                } else {
+                    cellHtml = `<span style="color:var(--text-muted);">—</span>`;
+                }
+            }
+
+            bodyHtml += `<td style="text-align:center;">${cellHtml}</td>`;
+        });
+
+        bodyHtml += "</tr>";
+    });
+
+    // Risk-reward row
+    const matrix = radar.confluence_matrix || {};
+    if (matrix.upside_pts != null || matrix.downside_pts != null) {
+        const rr = matrix.rr_ratio ? `<b>${matrix.rr_ratio}:1</b>` : "—";
+        const upPts = matrix.upside_pts != null ? `<span class="inst-conf-s">+${matrix.upside_pts} pts</span>` : "—";
+        const dwPts = matrix.downside_pts != null ? `<span class="inst-conf-r">-${matrix.downside_pts} pts</span>` : "—";
+        bodyHtml += `<tr style="background:rgba(129,140,248,0.05);border-top:1px solid rgba(129,140,248,0.2);">
+            <td style="font-weight:700;">⚖️ Risk/Reward</td>
+            <td colspan="5" style="text-align:center;">
+                ${upPts} upside &nbsp;·&nbsp; ${dwPts} downside &nbsp;·&nbsp; R:R = ${rr}
+            </td>
+        </tr>`;
+    }
+
+    tbody.innerHTML = bodyHtml;
+
+    // ─── Brokerage Radar Table ─────────────────────────────────────────────
+    const brokerageBody = document.getElementById("inst-brokerage-body");
+    const calls = radar.brokerage_calls || [];
+
+    if (!brokerageBody) return;
+
+    if (calls.length === 0) {
+        brokerageBody.innerHTML = `<tr><td colspan="5" class="inst-empty">No brokerage calls in cache yet. Will populate on next scheduled run.</td></tr>`;
+    } else {
+        let brHtml = "";
+        calls.forEach(c => {
+            const tp = c.target_price ? `₹${Number(c.target_price).toLocaleString("en-IN")}` : "—";
+            const upside = c.upside_pct != null ? `(${c.upside_pct > 0 ? "+" : ""}${c.upside_pct}%)` : "";
+            const link = c.source_link && c.source_link !== "#"
+                ? `<a href="${c.source_link}" target="_blank" rel="noopener" style="color:rgba(165,180,252,0.5);font-size:0.7rem;"> ↗</a>`
+                : "";
+            brHtml += `<tr>
+                <td><b>${c.institution || "—"}</b></td>
+                <td>${c.stock_name || c.stock_symbol || "—"}${link}</td>
+                <td>${_instActionBadge(c.action)}</td>
+                <td>${tp} ${upside}</td>
+                <td style="color:var(--text-muted);font-size:0.76rem;">${c.sector || "—"}</td>
+            </tr>`;
+        });
+        brokerageBody.innerHTML = brHtml;
+    }
+}
+
+// Also expose a standalone fetch for the /api/institutional-radar endpoint
+async function fetchAndRenderInstitutionalRadar() {
+    try {
+        const res = await fetch("/api/institutional-radar");
+        const json = await res.json();
+        if (json && json.data) {
+            renderInstitutionalRadar({ institutional_radar: json.data });
+        }
+    } catch (e) {
+        console.warn("Institutional radar fetch failed:", e);
+    }
+}
