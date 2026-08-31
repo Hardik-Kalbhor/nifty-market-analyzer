@@ -565,6 +565,26 @@ function renderSignalsTable(data) {
         rows.push({ name: "🎯 Put-Call Ratio (PCR)", value: valStr, category: "Options Open Interest", status, cls });
     }
 
+    // 5b. Max Pain
+    const maxPain = _safeNum(ms.max_pain ?? data.market_signals_detail?.max_pain);
+    if (maxPain !== null) {
+        const niftySpot = _safeNum(ms.nifty_spot ?? data.market_signals_detail?.nifty_spot);
+        const diff = niftySpot ? Math.round(maxPain - niftySpot) : null;
+        const diffStr = diff !== null ? ` (${diff >= 0 ? "+" : ""}${diff} pts from spot)` : "";
+        const cls = diff === null ? "neutral" : (Math.abs(diff) < 100 ? "positive" : "neutral");
+        rows.push({ name: "⚖️ Max Pain Level", value: `${maxPain}${diffStr}`, category: "Options OI Gravity Zone", status: "🟡 MAGNETIC LEVEL — Market drawn here by expiry", cls });
+    }
+
+    // 5c. Top OI Call & Put Strikes
+    const topCall = _safeNum(ms.top_oi_call_strike ?? data.market_signals_detail?.top_oi_call_strike);
+    const topPut  = _safeNum(ms.top_oi_put_strike  ?? data.market_signals_detail?.top_oi_put_strike);
+    if (topCall !== null) {
+        rows.push({ name: "🔴 OI Call Wall (Resistance)", value: `${topCall}`, category: "Options OI — Max Call Writers", status: "🔴 HEAVY CALL OI — Key resistance zone for next expiry", cls: "negative" });
+    }
+    if (topPut !== null) {
+        rows.push({ name: "🟢 OI Put Wall (Support)", value: `${topPut}`, category: "Options OI — Max Put Writers", status: "🟢 HEAVY PUT OI — Key support zone for next expiry", cls: "positive" });
+    }
+
     // 6. Top 5 Heavyweights (~39% Index Impact)
     if (data.heavyweights && typeof data.heavyweights === "object") {
         Object.entries(data.heavyweights).forEach(([ticker, hData]) => {

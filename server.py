@@ -144,9 +144,13 @@ def analyze():
         result["market_signals"] = market_signals
         result["heavyweights"] = heavyweights
 
-        # Attach cached institutional radar (read-only — written by scheduler)
+        # Attach cached institutional radar, passing live spot for R:R computation
         try:
-            result["institutional_radar"] = get_cached_institutional_radar(get_history_dir(), force_refresh=False)
+            live_spot = market_signals.get("nifty_spot") if market_signals else None
+            result["institutional_radar"] = get_cached_institutional_radar(
+                get_history_dir(), nifty_spot=live_spot, force_refresh=False
+            )
+
         except Exception:
             result["institutional_radar"] = {}
 

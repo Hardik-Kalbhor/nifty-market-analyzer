@@ -664,12 +664,61 @@ def get_cached_institutional_radar(
     """
     Primary entry point.
     Returns cached data if fresh; otherwise fetches, caches, and returns.
-    Called by auto_scheduler.py (scheduled) and server.py (/api/institutional-radar).
+    When nifty_spot is provided, always patches the spot-derived fields
+    (rr_ratio, upside_pts, downside_pts, nifty_spot) from the live price
+    so the matrix R:R row is always current — even when article data is cached.
+    Called by auto_scheduler.py (scheduled) and server.py (/api/analyze).
     """
     if not force_refresh:
         cached = load_institutional_radar_cache(history_dir)
         if cached:
+            # Patch live spot into cached result if provided
+            if nifty_spot:
+                cached = _patch_spot_derived_fields(cached, nifty_spot)
             return cached
+
     data = fetch_institutional_radar(nifty_spot=nifty_spot)
     save_institutional_radar_cache(data, history_dir)
     return data
+
+
+def _patch_spot_derived_fields(radar: dict, nifty_spot: float) -> dict:
+    """
+    Patch the nifty_spot-dependent fields into a cached radar result.
+    This avoids a full re-scrape while keeping the matrix R:R row live.
+    """
+    try:
+        import copy
+        radar = copy.deepcopy(radar)
+        radar["nifty_spot"] = nifty_spot
+
+        # Re-derive confluence_matrix R:R fields from current spot
+        matrix = radar.get("confluence_matrix", {})
+        consensus = radar.get("consensus", {})
+
+        def _parse_level(val) -> Optional[float]:
+            if val is None:
+                return None
+            try:
+                return float(str(val).replace(",", "").split("—")[0].strip())
+            except Exception:
+                return None
+
+        cr1 = _parse_level(consensus.get("r1"))
+        cs1 = _parse_level(consensus.get("s1"))
+        upside_pts = downside_pts = rr_ratio = None
+        if nifty_spot and cr1 and cs1:
+            upside_pts = round(cr1 - nifty_spot)
+            downside_pts = round(nifty_spot - cs1)
+            if downside_pts and downside_pts > 0:
+                rr_ratio = round(upside_pts / downside_pts, 2)
+
+        matrix["nifty_spot"] = nifty_spot
+        matrix["upside_pts"] = upside_pts
+        matrix["downside_pts"] = downside_pts
+        matrix["rr_ratio"] = rr_ratio
+        radar["confluence_matrix"] = matrix
+    except Exception:
+        pass
+    return radar
+
