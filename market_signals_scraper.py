@@ -196,86 +196,104 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
 
 
 
-def _fetch_oi_spurts_fallback(session, headers, defaults: dict) -> dict:
+def _fetch_groww_option_chain_fallback(defaults: dict) -> dict:
     """
-    Fallback for option chain data when the primary OC endpoint is unavailable.
-    Uses NSE live-analysis-oi-spurts-underlyings endpoint to:
-    - Derive a PCR proxy from NIFTY's option/futures OI ratio
-    - Estimate top call/put OI strikes from spot price offsets
-
-    This is intentionally a best-effort approximation, not exact OC math.
+    Secondary fallback for option chain and PCR data when NSE direct API is unavailable.
+    Uses Groww's live derivative option chain API for NIFTY to compute exact:
+    - PCR (Total PE OI / Total CE OI)
+    - Max Pain strike
+    - Top Call / Put OI strikes
     """
     try:
-        _session = session or requests.Session()
-        _headers = headers or {
+        headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "application/json",
         }
-        r = _session.get(
-            "https://www.nseindia.com/api/live-analysis-oi-spurts-underlyings",
-            headers=_headers, timeout=5
+        r = requests.get(
+            "https://groww.in/v1/api/option_chain_service/v1/option_chain/nifty",
+            headers=headers, timeout=6
         )
         if r.status_code != 200:
             return defaults
 
-        data = r.json().get("data", [])
-        nifty = next((x for x in data if x.get("symbol") == "NIFTY"), None)
-        if not nifty:
+        data = r.json()
+        chains = data.get("optionChain", {}).get("optionChains", [])
+        if not chains:
             return defaults
 
-        spot = nifty.get("underlyingValue") or 0
-        total_oi = nifty.get("latestOI") or 0
-        opt_value = nifty.get("optValue") or 0
-        fut_value = nifty.get("futValue") or 1
+        tot_ce_oi = 0
+        tot_pe_oi = 0
+        ce_oi_by_strike = {}
+        pe_oi_by_strike = {}
 
-        # Derive approximate PCR: option value / futures value as proxy
-        # Real PCR needs full OC; this is a structural bias proxy
-        pcr_proxy = round(opt_value / (fut_value * 100), 2) if fut_value > 0 else 1.05
-        pcr_proxy = max(0.5, min(pcr_proxy, 2.0))  # clamp to sane range
+        for item in chains:
+            call_opt = item.get("callOption") or {}
+            put_opt = item.get("putOption") or {}
+            strike_raw = call_opt.get("strikePrice") or put_opt.get("strikePrice") or item.get("strikePrice") or 0
+            strike = int(strike_raw / 100) if strike_raw > 100000 else int(strike_raw)
 
-        # Estimate top OI strikes from spot (nearest round 50)
-        if spot > 0:
-            rounded_spot = round(spot / 50) * 50
-            top_call = rounded_spot + 200  # approximate resistance at +200pts
-            top_put = rounded_spot - 200   # approximate support at -200pts
-        else:
-            top_call = top_put = None
+            ce_oi = call_opt.get("openInterest") or 0
+            pe_oi = put_opt.get("openInterest") or 0
+            tot_ce_oi += ce_oi
+            tot_pe_oi += pe_oi
+            if ce_oi > 0:
+                ce_oi_by_strike[strike] = ce_oi
+            if pe_oi > 0:
+                pe_oi_by_strike[strike] = pe_oi
 
-        logger.info(f"OI Spurts Fallback: PCR proxy={pcr_proxy}, Est. top call={top_call}, top put={top_put} (spot={spot})")
+        pcr = round(tot_pe_oi / tot_ce_oi, 2) if tot_ce_oi > 0 else 1.0
+
+        all_strikes = sorted(set(list(ce_oi_by_strike.keys()) + list(pe_oi_by_strike.keys())))
+        pain_by_strike = {}
+        for s in all_strikes:
+            ce_pain = sum(ce_oi_by_strike.get(k, 0) * max(0, s - k) for k in all_strikes)
+            pe_pain = sum(pe_oi_by_strike.get(k, 0) * max(0, k - s) for k in all_strikes)
+            pain_by_strike[s] = ce_pain + pe_pain
+
+        max_pain = min(pain_by_strike, key=pain_by_strike.get) if pain_by_strike else None
+        top_oi_call = max(ce_oi_by_strike, key=ce_oi_by_strike.get) if ce_oi_by_strike else None
+        top_oi_put = max(pe_oi_by_strike, key=pe_oi_by_strike.get) if pe_oi_by_strike else None
+
+        logger.info(f"Groww Option Chain (Fallback): PCR={pcr}, Max Pain={max_pain}, Top Call OI={top_oi_call}, Top Put OI={top_oi_put}")
         return {
-            "pcr": pcr_proxy,
-            "max_pain": round(spot / 50) * 50 if spot > 0 else None,  # spot-rounded as max pain proxy
-            "top_oi_call_strike": top_call,
-            "top_oi_put_strike": top_put,
+            "pcr": pcr,
+            "max_pain": max_pain,
+            "top_oi_call_strike": top_oi_call,
+            "top_oi_put_strike": top_oi_put,
         }
     except Exception as e:
-        logger.warning(f"OI spurts fallback failed: {e}")
+        logger.warning(f"Groww option chain fallback failed: {e}")
         return defaults
 
 
 def _fetch_option_chain_data() -> dict:
-
     """
-    Scrape live NIFTY Option Chain from NSE for:
-    - Put-Call Ratio (PCR)
+    Scrape live NIFTY Option Chain for:
+    - Put-Call Ratio (PCR = Total PE OI / Total CE OI)
     - Max Pain level (strike with minimum total option pain)
     - Top OI Call strike (resistance)
     - Top OI Put strike (support)
 
     Strategy:
-      1. Try fetching OC via two-step (contract-info → option-chain-equities with expiry)
-      2. Fallback: derive PCR from NSE live OI spurts underlyings (NIFTY futures OI ratio)
-      3. Hardcoded defaults as last resort
+      1. Primary: Official NSE option-chain-v3 API (with session priming)
+      2. Secondary Fallback: Groww live option chain service
+      3. Last resort: Neutral defaults (PCR=1.0)
     """
-    defaults = {"pcr": 1.05, "max_pain": None, "top_oi_call_strike": None, "top_oi_put_strike": None}
+    defaults = {"pcr": 1.0, "max_pain": None, "top_oi_call_strike": None, "top_oi_put_strike": None}
     try:
         session = requests.Session()
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.nseindia.com/option-chain",
         }
+
+        # Step 0: Prime cookies on option-chain page
+        session.get("https://www.nseindia.com/option-chain", headers=headers, timeout=5)
+        headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://www.nseindia.com/option-chain",
+        })
 
         # Step 1: Get nearest expiry date
         r_info = session.get(
@@ -291,18 +309,18 @@ def _fetch_option_chain_data() -> dict:
 
         records = []
         if nearest_expiry:
-            # Step 2: Fetch OC data for nearest expiry (equities endpoint works for index too with expiry param)
+            # Step 2: Fetch OC data for nearest expiry via option-chain-v3
             r_oc = session.get(
-                f"https://www.nseindia.com/api/option-chain-equities?symbol=NIFTY&expiryDate={nearest_expiry}",
+                f"https://www.nseindia.com/api/option-chain-v3?type=Indices&symbol=NIFTY&expiry={nearest_expiry}",
                 headers=headers, timeout=6
             )
             if r_oc.status_code == 200:
                 oc_body = r_oc.json()
                 records = oc_body.get("records", {}).get("data", [])
 
-        # If no records from OC endpoint, try OI spurts for PCR proxy
+        # If no records from NSE primary OC endpoint, try secondary fallback
         if not records:
-            return _fetch_oi_spurts_fallback(session, headers, defaults)
+            return _fetch_groww_option_chain_fallback(defaults)
 
         tot_ce_oi = 0
         tot_pe_oi = 0
@@ -312,8 +330,8 @@ def _fetch_option_chain_data() -> dict:
 
         for row in records:
             strike = row.get("strikePrice", 0)
-            ce_oi = row.get("CE", {}).get("openInterest", 0)
-            pe_oi = row.get("PE", {}).get("openInterest", 0)
+            ce_oi = row.get("CE", {}).get("openInterest", 0) if row.get("CE") else 0
+            pe_oi = row.get("PE", {}).get("openInterest", 0) if row.get("PE") else 0
             tot_ce_oi += ce_oi
             tot_pe_oi += pe_oi
             if ce_oi > 0:
@@ -321,8 +339,8 @@ def _fetch_option_chain_data() -> dict:
             if pe_oi > 0:
                 pe_oi_by_strike[strike] = pe_oi
 
-        # PCR
-        pcr = round(tot_pe_oi / tot_ce_oi, 2) if tot_ce_oi > 0 else 1.05
+        # PCR = Put OI / Call OI
+        pcr = round(tot_pe_oi / tot_ce_oi, 2) if tot_ce_oi > 0 else 1.0
 
         # Max Pain: strike where total OI pain (intrinsic loss) is minimised
         all_strikes = sorted(set(list(ce_oi_by_strike.keys()) + list(pe_oi_by_strike.keys())))
@@ -336,7 +354,7 @@ def _fetch_option_chain_data() -> dict:
         top_oi_call = max(ce_oi_by_strike, key=ce_oi_by_strike.get) if ce_oi_by_strike else None
         top_oi_put = max(pe_oi_by_strike, key=pe_oi_by_strike.get) if pe_oi_by_strike else None
 
-        logger.info(f"Option Chain: PCR={pcr}, Max Pain={max_pain}, Top Call OI={top_oi_call}, Top Put OI={top_oi_put}")
+        logger.info(f"NSE Option Chain: PCR={pcr}, Max Pain={max_pain}, Top Call OI={top_oi_call}, Top Put OI={top_oi_put}")
         return {
             "pcr": pcr,
             "max_pain": max_pain,
@@ -347,9 +365,9 @@ def _fetch_option_chain_data() -> dict:
     except Exception as e:
         logger.warning(f"Could not scrape option chain data from NSE: {e}")
 
-    # Final fallback via OI spurts
+    # Fallback to secondary source
     try:
-        return _fetch_oi_spurts_fallback(None, None, defaults)
+        return _fetch_groww_option_chain_fallback(defaults)
     except Exception:
         pass
     return defaults
