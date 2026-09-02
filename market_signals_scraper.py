@@ -22,11 +22,49 @@ HEADERS = {
 }
 
 
+def _fetch_yahoo_chart_quote(symbol: str, timeout: float = 3.5) -> dict[str, Any] | None:
+    """
+    Direct HTTP fetch from Yahoo Finance Chart API.
+    Executes in ~100-300ms without heavy yfinance dependencies, session locks, or crumb delays.
+    Returns {"price": float, "change_pct": float} or None.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+    }
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
+    try:
+        r = requests.get(url, headers=headers, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            res = data.get("chart", {}).get("result", [])
+            if res:
+                meta = res[0].get("meta", {})
+                last = meta.get("regularMarketPrice")
+                chg_pct = meta.get("regularMarketChangePercent")
+                if chg_pct is None:
+                    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
+                    if last is not None and prev is not None and prev > 0:
+                        chg_pct = ((last - prev) / prev) * 100
+                if last is not None:
+                    return {
+                        "price": round(float(last), 2),
+                        "change_pct": round(float(chg_pct), 2) if chg_pct is not None else 0.0,
+                    }
+    except Exception as e:
+        logger.debug(f"Direct chart fetch failed for {symbol}: {e}")
+    return None
+
+
 def _fetch_nse_indices() -> dict[str, Any]:
     """
     Scrape India VIX, Nifty 50 spot, Bank Nifty, Nifty IT from NSE India allIndices API.
     If NSE API fails or returns incomplete data (e.g. cloud IP blocking on Render),
-    automatically falls back to yfinance (^INDIAVIX, ^NSEI, ^NSEBANK, ^CNXIT).
+    automatically falls back to direct Yahoo Chart API and then yfinance (^INDIAVIX, ^NSEI, ^NSEBANK, ^CNXIT).
     """
     vix_val = None
     vix_change_pct = None
@@ -60,36 +98,40 @@ def _fetch_nse_indices() -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"Error fetching NSE indices from official API: {e}")
 
-    # Fallback to yfinance if NSE API failed or returned missing data (e.g. on Render / Cloud IP blocks)
+    # Fallback to direct Yahoo Finance Chart API if NSE API failed or returned missing data
     if vix_val is None or nifty_spot is None or bank_nifty_pct is None or it_nifty_pct is None:
-        logger.info("Falling back to yfinance for Indian indices (^INDIAVIX, ^NSEI, ^NSEBANK, ^CNXIT)...")
+        logger.info("Falling back to Yahoo Finance for Indian indices (^INDIAVIX, ^NSEI, ^NSEBANK, ^CNXIT)...")
+        import concurrent.futures
+
+        ticker_map = {
+            "^INDIAVIX": "vix",
+            "^NSEI": "nifty",
+            "^NSEBANK": "bank",
+            "^CNXIT": "it"
+        }
+
+        def _fetch_idx(sym: str, key: str):
+            quote = _fetch_yahoo_chart_quote(sym, timeout=3.5)
+            if quote:
+                return key, quote["price"], quote["change_pct"]
+            # Fallback to yfinance if direct chart API missed
+            try:
+                import yfinance as yf
+                t = yf.Ticker(sym)
+                fast = t.fast_info
+                last = getattr(fast, "last_price", None)
+                prev = getattr(fast, "previous_close", None)
+                if last is not None:
+                    pct = round(((last - prev) / prev) * 100, 2) if (prev is not None and prev > 0) else 0.0
+                    return key, last, pct
+            except Exception as ex:
+                logger.debug(f"yfinance failed for {sym}: {ex}")
+            return key, None, None
+
         try:
-            import yfinance as yf
-            import concurrent.futures
-
-            ticker_map = {
-                "^INDIAVIX": "vix",
-                "^NSEI": "nifty",
-                "^NSEBANK": "bank",
-                "^CNXIT": "it"
-            }
-
-            def _fetch_yf_idx(sym: str, key: str):
-                try:
-                    t = yf.Ticker(sym)
-                    fast = t.fast_info
-                    last = getattr(fast, "last_price", None)
-                    prev = getattr(fast, "previous_close", None)
-                    if last is not None:
-                        pct = round(((last - prev) / prev) * 100, 2) if (prev is not None and prev > 0) else 0.0
-                        return key, last, pct
-                except Exception as ex:
-                    logger.debug(f"yfinance failed for {sym}: {ex}")
-                return key, None, None
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(_fetch_yf_idx, sym, k) for sym, k in ticker_map.items()]
-                done, not_done = concurrent.futures.wait(futures, timeout=4.0)
+                futures = [executor.submit(_fetch_idx, sym, k) for sym, k in ticker_map.items()]
+                done, not_done = concurrent.futures.wait(futures, timeout=5.0)
                 for f in not_done:
                     f.cancel()
                 for f in done:
@@ -108,9 +150,9 @@ def _fetch_nse_indices() -> dict[str, Any]:
                     except Exception:
                         pass
 
-            logger.info(f"NSE Indices recovered via yfinance: Nifty50={nifty_spot} ({nifty_pct}%), India VIX={vix_val} ({vix_change_pct}%), Bank Nifty={bank_nifty_pct}%, IT={it_nifty_pct}%")
+            logger.info(f"NSE Indices recovered via Yahoo Finance: Nifty50={nifty_spot} ({nifty_pct}%), India VIX={vix_val} ({vix_change_pct}%), Bank Nifty={bank_nifty_pct}%, IT={it_nifty_pct}%")
         except Exception as yf_err:
-            logger.warning(f"yfinance fallback failed for NSE indices: {yf_err}")
+            logger.warning(f"Yahoo Finance fallback failed for NSE indices: {yf_err}")
 
     return {
         "india_vix": vix_val,
@@ -122,18 +164,12 @@ def _fetch_nse_indices() -> dict[str, Any]:
     }
 
 
-
 def _fetch_global_markets_and_gift() -> dict[str, Any]:
     """
     Fetch GIFT Nifty % change and overnight Global Market Indices
-    (S&P 500, NASDAQ, Dow Jones, Nikkei, Hang Seng, DAX) in parallel via yfinance.
+    (S&P 500, NASDAQ, Dow Jones, Nikkei, Hang Seng, DAX) in parallel via direct Yahoo Chart API.
     """
     import concurrent.futures
-    import yfinance as yf
-    try:
-        yf.set_tz_cache_location("/tmp/py-yfinance")
-    except Exception:
-        pass
 
     market_changes = {
         "sp500": 0.0,
@@ -154,15 +190,22 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
     }
 
     def fetch_single_ticker(symbol: str, key: str):
+        # 1. Direct high-speed Yahoo Chart API (<300ms)
+        quote = _fetch_yahoo_chart_quote(symbol, timeout=3.5)
+        if quote and quote.get("change_pct") is not None:
+            return key, quote["change_pct"]
+
+        # 2. Fallback to yfinance if direct HTTP had an issue
         try:
+            import yfinance as yf
             t = yf.Ticker(symbol)
             fast = t.fast_info
-            last = fast.last_price
-            prev = fast.previous_close
+            last = getattr(fast, "last_price", None)
+            prev = getattr(fast, "previous_close", None)
             if last and prev and prev > 0:
                 return key, round(((last - prev) / prev) * 100, 2)
         except Exception as item_err:
-            logger.warning(f"Error fetching ticker {symbol}: {item_err}")
+            logger.warning(f"Error fetching ticker {symbol} via yfinance: {item_err}")
         return key, None
 
     try:
@@ -180,19 +223,24 @@ def _fetch_global_markets_and_gift() -> dict[str, Any]:
                 except Exception as e:
                     logger.warning(f"Ticker thread error: {e}")
 
-        logger.info(f"Global markets scraped successfully via yfinance: {market_changes}")
+        logger.info(f"Global markets scraped successfully: {market_changes}")
     except Exception as e:
-        logger.warning(f"Error fetching global markets via yfinance: {e}")
+        logger.warning(f"Error fetching global markets: {e}")
 
-    # GIFT Nifty proxy (derived from US S&P 500 / NASDAQ / Asia correlation)
+    # GIFT Nifty proxy (derived from US S&P 500 / NASDAQ / Asian Nikkei & Hang Seng correlation)
     sp_pct = market_changes.get("sp500", 0.0)
     nasdaq_pct = market_changes.get("nasdaq", 0.0)
-    gift_change_pct = round((sp_pct * 0.5) + (nasdaq_pct * 0.4), 2)
+    nikkei_pct = market_changes.get("nikkei", 0.0)
+    hangseng_pct = market_changes.get("hangseng", 0.0)
+
+    # Multi-market weighted global cue formula
+    gift_change_pct = round((sp_pct * 0.35) + (nasdaq_pct * 0.30) + (nikkei_pct * 0.20) + (hangseng_pct * 0.15), 2)
 
     return {
         "gift_nifty_change_pct": gift_change_pct,
         "global_market_changes": market_changes,
     }
+
 
 
 

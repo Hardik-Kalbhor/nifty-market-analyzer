@@ -44,28 +44,62 @@ HEAVYWEIGHT_TICKERS = {
 def fetch_heavyweight_stocks() -> dict[str, Any]:
     """
     Concurrently fetch live price and percent change for top 5 NIFTY heavyweights.
-    Executes in ~200-350ms using ThreadPoolExecutor and fast_info.
+    Executes in ~200-350ms using direct Yahoo Finance chart API with yfinance fallback.
     """
+    import requests
     stocks = {}
-    if not yf:
-        return stocks
 
     def _fetch_single(ticker: str, meta: dict):
+        # 1. Direct high-speed Yahoo Chart API (<250ms)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/plain, */*",
+        }
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
         try:
-            t = yf.Ticker(ticker)
-            info = t.fast_info
-            last_price = getattr(info, "last_price", None)
-            prev_close = getattr(info, "previous_close", None)
-            if last_price and prev_close and prev_close > 0:
-                pct = round(((last_price - prev_close) / prev_close) * 100, 2)
-                return ticker, {
-                    "name": meta["name"],
-                    "weight": meta["weight"],
-                    "price": round(last_price, 2),
-                    "change_pct": pct,
-                }
+            r = requests.get(url, headers=headers, timeout=3.0)
+            if r.status_code == 200:
+                data = r.json()
+                res = data.get("chart", {}).get("result", [])
+                if res:
+                    m = res[0].get("meta", {})
+                    last_price = m.get("regularMarketPrice")
+                    chg_pct = m.get("regularMarketChangePercent")
+                    if chg_pct is None:
+                        prev = m.get("chartPreviousClose") or m.get("previousClose")
+                        if last_price and prev and prev > 0:
+                            chg_pct = ((last_price - prev) / prev) * 100
+                    if last_price is not None and chg_pct is not None:
+                        return ticker, {
+                            "name": meta["name"],
+                            "weight": meta["weight"],
+                            "price": round(float(last_price), 2),
+                            "change_pct": round(float(chg_pct), 2),
+                        }
         except Exception as e:
-            logger.debug(f"Error fetching {ticker}: {e}")
+            logger.debug(f"Direct chart fetch failed for {ticker}: {e}")
+
+        # 2. Fallback to yfinance if direct HTTP had an issue
+        if yf:
+            try:
+                t = yf.Ticker(ticker)
+                info = t.fast_info
+                last_price = getattr(info, "last_price", None)
+                prev_close = getattr(info, "previous_close", None)
+                if last_price and prev_close and prev_close > 0:
+                    pct = round(((last_price - prev_close) / prev_close) * 100, 2)
+                    return ticker, {
+                        "name": meta["name"],
+                        "weight": meta["weight"],
+                        "price": round(last_price, 2),
+                        "change_pct": pct,
+                    }
+            except Exception as e:
+                logger.debug(f"Error fetching {ticker} via yfinance: {e}")
         return ticker, None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -73,7 +107,7 @@ def fetch_heavyweight_stocks() -> dict[str, Any]:
             executor.submit(_fetch_single, sym, meta)
             for sym, meta in HEAVYWEIGHT_TICKERS.items()
         ]
-        done, not_done = concurrent.futures.wait(futures, timeout=3.5)
+        done, not_done = concurrent.futures.wait(futures, timeout=4.0)
         for f in not_done:
             f.cancel()
 
@@ -86,6 +120,7 @@ def fetch_heavyweight_stocks() -> dict[str, Any]:
                 pass
 
     return stocks
+
 
 
 def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -> Optional[dict[str, Any]]:
