@@ -20,6 +20,7 @@ from exit_fast_path import (
     generate_rule_based_fallback,
     TIMEZONE
 )
+import debate_engine
 
 load_dotenv()
 logger = logging.getLogger("ExitAnalyzer")
@@ -82,10 +83,14 @@ Return ONLY a valid JSON object:
 def _validate_and_ground_output(
     parsed: dict[str, Any],
     live_spot: float,
-    entry_spot: float
+    entry_spot: float,
+    position: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """
     Validates output structure and verifies numerical claims to prevent AI hallucination.
+    Enforces that trailing stop loss is on the mathematically valid side of live spot:
+    - Bullish trades (BUY_CE, LONG_FUTURES, SHORT_PE): SL must be strictly BELOW live spot.
+    - Bearish trades (BUY_PE, SHORT_FUTURES, SHORT_CE): SL must be strictly ABOVE live spot.
     """
     valid_verdicts = {
         "HOLD_AND_RIDE", "PARTIAL_BOOK_50", "PARTIAL_BOOK_70",
@@ -116,6 +121,20 @@ def _validate_and_ground_output(
         if live_spot > 0 and abs(sl - live_spot) / live_spot > 0.05:
             logger.warning(f"Ungrounded SL {sl} detected (live spot {live_spot}), clamping.")
             sl = round(entry_spot if entry_spot > 0 else live_spot, 1)
+
+        # Directional Grounding: Ensure SL is on the correct side of live spot
+        if position and live_spot > 0:
+            side = str(position.get("position_side", "BUY_CE")).upper()
+            is_bullish = side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"]
+            if is_bullish and sl >= live_spot:
+                logger.warning(f"Bullish SL {sl} >= live spot {live_spot} detected — clamping below live spot.")
+                safe_fallback = entry_spot if (0 < entry_spot < live_spot) else (live_spot - 30)
+                sl = round(safe_fallback, 1)
+            elif not is_bullish and sl <= live_spot:
+                logger.warning(f"Bearish SL {sl} <= live spot {live_spot} detected — clamping above live spot.")
+                safe_fallback = entry_spot if (entry_spot > live_spot) else (live_spot + 30)
+                sl = round(safe_fallback, 1)
+
         parsed["trailing_sl"] = round(sl, 1)
     except Exception:
         parsed["trailing_sl"] = round(entry_spot if entry_spot > 0 else live_spot, 1)
@@ -211,7 +230,7 @@ def build_exit_prompt_context(
         except Exception:
             dte_text = f"DTE: {dte}"
     elif expiry_day:
-        dte_text = "⚠️ WEEKLY EXPIRY TODAY (Thursday) — theta collapse accelerating. Short sellers: lock profits aggressively."
+        dte_text = "⚠️ WEEKLY EXPIRY TODAY (Tuesday) — theta collapse accelerating. Short sellers: lock profits aggressively."
     else:
         dte_text = "DTE: Not specified (assume normal decay)."
 
@@ -431,6 +450,8 @@ def evaluate_exit_with_ai(
     groq_key = os.environ.get("GROQ_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
 
+    ai_candidate = None
+
     # Try Groq Cloud (ultra-fast ~800ms)
     if groq_key:
         try:
@@ -453,19 +474,20 @@ def evaluate_exit_with_ai(
                 if res.status_code == 200:
                     raw_text = res.json()["choices"][0]["message"]["content"]
                     parsed = json.loads(raw_text)
-                    grounded = _validate_and_ground_output(parsed, live_spot, entry_spot)
+                    grounded = _validate_and_ground_output(parsed, live_spot, entry_spot, position=position)
                     grounded = _resolve_dimension_conflict(grounded)
                     grounded["engine"] = f"Groq AI ({model}) — Multi-Perspective 6-Agent"
                     grounded["heavyweights"] = heavyweights
                     grounded["is_fast_path"] = False
                     grounded["is_fallback"] = False
-                    logger.info(f"✅ Groq Exit Advisor Decision: {grounded['verdict']} ({grounded['confidence']}%)")
-                    return grounded
+                    logger.info(f"✅ Groq Exit Advisor Baseline: {grounded['verdict']} ({grounded['confidence']}%)")
+                    ai_candidate = grounded
+                    break
         except Exception as groq_err:
             logger.warning(f"Groq Exit Advisor error: {groq_err}")
 
     # Fallback to Google Gemini
-    if gemini_key:
+    if not ai_candidate and gemini_key:
         try:
             for model in ["gemini-2.5-flash", "gemini-flash-latest"]:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
@@ -480,18 +502,37 @@ def evaluate_exit_with_ai(
                 if res.status_code == 200:
                     raw_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     parsed = json.loads(raw_text)
-                    grounded = _validate_and_ground_output(parsed, live_spot, entry_spot)
+                    grounded = _validate_and_ground_output(parsed, live_spot, entry_spot, position=position)
                     grounded = _resolve_dimension_conflict(grounded)
                     grounded["engine"] = f"Google Gemini ({model}) — Multi-Perspective 6-Agent"
                     grounded["heavyweights"] = heavyweights
                     grounded["is_fast_path"] = False
                     grounded["is_fallback"] = False
-                    logger.info(f"✅ Gemini Exit Advisor Decision: {grounded['verdict']} ({grounded['confidence']}%)")
-                    return grounded
+                    logger.info(f"✅ Gemini Exit Advisor Baseline: {grounded['verdict']} ({grounded['confidence']}%)")
+                    ai_candidate = grounded
+                    break
         except Exception as gemini_err:
             logger.warning(f"Gemini Exit Advisor error: {gemini_err}")
 
-    # --- STAGE 4: Deterministic Mathematical Fallback ---
+    # --- STAGE 4: Multi-Persona Exit Debate Committee (Runner, Guardian, Tactical, Judge) ---
+    if ai_candidate:
+        try:
+            debated = debate_engine.run_exit_debate(
+                stage1_result=ai_candidate,
+                position=position,
+                live_signals=live_signals,
+                heavyweights=heavyweights,
+                groq_key=groq_key or "",
+                gemini_key=gemini_key or "",
+            )
+            final_res = _validate_and_ground_output(debated, live_spot, entry_spot, position=position)
+            logger.info(f"🎯 Final Exit Advisor Decision: {final_res['verdict']} ({final_res['confidence']}%)")
+            return final_res
+        except Exception as deb_err:
+            logger.warning(f"Exit Debate Committee error: {deb_err} — using baseline AI candidate.")
+            return ai_candidate
+
+    # --- STAGE 5: Deterministic Mathematical Fallback ---
     logger.warning("All AI models offline/timed out. Engaging Rule-Based Fallback Advisor.")
     fallback = generate_rule_based_fallback(position, live_signals, heavyweights)
     fallback["heavyweights"] = heavyweights

@@ -8,6 +8,8 @@ import logging
 import requests
 from typing import Any
 
+import yf_cache
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -24,40 +26,12 @@ HEADERS = {
 
 def _fetch_yahoo_chart_quote(symbol: str, timeout: float = 3.5) -> dict[str, Any] | None:
     """
-    Direct HTTP fetch from Yahoo Finance Chart API.
-    Executes in ~100-300ms without heavy yfinance dependencies, session locks, or crumb delays.
+    Fetch a live quote from Yahoo Finance — backed by yf_cache.
+    Results are cached for 5 minutes and retried with exponential backoff.
     Returns {"price": float, "change_pct": float} or None.
     """
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, text/plain, */*",
-    }
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=5d"
-    try:
-        r = requests.get(url, headers=headers, timeout=timeout)
-        if r.status_code == 200:
-            data = r.json()
-            res = data.get("chart", {}).get("result", [])
-            if res:
-                meta = res[0].get("meta", {})
-                last = meta.get("regularMarketPrice")
-                chg_pct = meta.get("regularMarketChangePercent")
-                if chg_pct is None:
-                    prev = meta.get("chartPreviousClose") or meta.get("previousClose")
-                    if last is not None and prev is not None and prev > 0:
-                        chg_pct = ((last - prev) / prev) * 100
-                if last is not None:
-                    return {
-                        "price": round(float(last), 2),
-                        "change_pct": round(float(chg_pct), 2) if chg_pct is not None else 0.0,
-                    }
-    except Exception as e:
-        logger.debug(f"Direct chart fetch failed for {symbol}: {e}")
-    return None
+    return yf_cache.fetch_quote(symbol, timeout=timeout)
+
 
 
 def _fetch_nse_indices() -> dict[str, Any]:

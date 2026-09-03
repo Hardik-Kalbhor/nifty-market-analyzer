@@ -18,6 +18,9 @@ from fii_dii_scraper import fetch_fii_dii_data
 from market_signals_scraper import fetch_all_market_signals
 from llm_analyzer import analyze_with_ai_agents, GeminiQuotaError
 from institutional_scraper import get_cached_institutional_radar
+from memory_log import get_memory_log
+import yf_cache
+import debate_engine
 
 
 logging.basicConfig(
@@ -85,9 +88,29 @@ def analyze():
         heavyweights = f_hw.result() if f_hw in done else {}
         logger.info(f"Ingested {len(news_items)} news items, FII/DII: {bool(fii_dii_data)}, Signals: {bool(market_signals)}, Heavyweights: {len(heavyweights)}")
 
-        # Phase 3: 6-Agent BTST Analysis & Arbiter
+        # Phase 3: 6-Agent BTST Analysis & Arbiter (with Phase D memory injection)
         logger.info("Phase 3: Running 6-Agent BTST Swarm analysis...")
-        ai_result = analyze_with_ai_agents(news_items, market_signals, fii_dii_data, heavyweights)
+
+        # Phase D: Load past lessons from memory log (non-blocking, best-effort)
+        past_context = ""
+        try:
+            memory = get_memory_log()
+            past_context = memory.load_past_context(n=5)
+            if past_context:
+                logger.info(f"Memory Phase D: Injecting {len(past_context.splitlines())} lines of past lessons into LLM prompt.")
+        except Exception as mem_err:
+            logger.debug(f"Memory Phase D skipped (non-critical): {mem_err}")
+
+        # Check if debate mode is requested (default True)
+        run_debate = request.args.get("debate", "true").lower() == "true"
+        if run_debate:
+            logger.info("Debate mode active — running 3-agent BTST risk committee after Stage 1.")
+
+        ai_result = analyze_with_ai_agents(
+            news_items, market_signals, fii_dii_data, heavyweights,
+            past_context=past_context,
+            run_debate=run_debate,
+        )
 
         result = analyze_news(
             news_items=news_items,
@@ -114,9 +137,17 @@ def analyze():
         if ai_result.get("bearish_factors"):
             result["bearish_factors"] = ai_result["bearish_factors"]
 
+        # Debate fields (present only when ?debate=true and btst_bias != NO TRADE)
+        if ai_result.get("btst_structure"):
+            result["btst_structure"]    = ai_result["btst_structure"]
+            result["trade_instruction"] = ai_result.get("trade_instruction")
+            result["debate_consensus"]  = ai_result.get("debate_consensus")
+            result["debate"]            = ai_result.get("debate")
+
         logger.info(
             f"BTST Analysis ({result['ai_agent_provider']}) — Prediction: {result['prediction']}, "
             f"Bias: {result['btst_bias']}, Confidence: {result['confidence']}%"
+            + (f", Structure: {result.get('btst_structure')}" if result.get('btst_structure') else "")
         )
 
 
@@ -136,6 +167,21 @@ def analyze():
             f"Pattern: {intraday['intraday_pattern']['pattern']}, "
             f"Volatility: {intraday['volatility']['level']}"
         )
+
+        # Phase 4B: 3-Analyst Intraday Debate Committee
+        try:
+            groq_key = os.environ.get("GROQ_API_KEY", "")
+            gemini_key = os.environ.get("GEMINI_API_KEY", "")
+            intraday = debate_engine.run_intraday_debate(
+                intraday_result=intraday,
+                market_signals=market_signals,
+                heavyweights=heavyweights,
+                news_sentiment=result.get("news_sentiment", "MIXED"),
+                groq_key=groq_key,
+                gemini_key=gemini_key,
+            )
+        except Exception as deb_err:
+            logger.warning(f"Intraday Debate Committee error: {deb_err} — proceeding with baseline intraday.")
 
         # Merge FII/DII and intraday results into the output payload
         result["intraday"] = intraday
@@ -195,6 +241,38 @@ def health():
     return jsonify({"status": "ok", "service": "NIFTY Market Analyzer (BTST + Intraday)"})
 
 
+@app.route("/api/memory", methods=["GET"])
+def get_memory():
+    """
+    Return prediction memory log stats and past lessons.
+
+    Response:
+      {
+        "status": "ok",
+        "data": {
+          "total_predictions": int,
+          "resolved": int,
+          "pending": int,
+          "correct": int,
+          "partial": int,
+          "wrong": int,
+          "accuracy_pct": float,
+          "past_context": str,   -- the exact text injected into LLM prompts
+          "entries": [...]       -- last 20 entries, newest first
+        }
+      }
+    """
+    try:
+        memory = get_memory_log()
+        stats = memory.get_stats()
+        stats["past_context"] = memory.load_past_context(n=5)
+        stats["yf_cache"] = yf_cache.cache_stats()
+        return jsonify({"status": "ok", "data": stats})
+    except Exception as e:
+        logger.error(f"/api/memory failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/trigger-schedule", methods=["POST", "GET"])
 def trigger_schedule():
     """Manually trigger an automated scheduler run for testing."""
@@ -249,7 +327,7 @@ def get_history():
         for h_dir in history_dirs:
             if os.path.exists(h_dir):
                 for f in os.listdir(h_dir):
-                    if f.endswith(".json") and f != "latest.json" and f not in files_map:
+                    if f.startswith("analysis_") and f.endswith(".json") and f != "latest.json" and f not in files_map:
                         files_map[f] = os.path.join(h_dir, f)
 
         sorted_filenames = sorted(files_map.keys(), reverse=True)

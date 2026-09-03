@@ -11,6 +11,8 @@ import requests
 from typing import Any, Optional
 from dotenv import load_dotenv
 
+import debate_engine
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -86,7 +88,7 @@ Return ONLY a valid JSON object in this exact schema:
 def _get_fo_expiry_context() -> str:
     """
     Compute F&O expiry context for today (IST).
-    Weekly expiry = every Thursday. Monthly expiry = last Thursday of the month.
+    Weekly expiry = every Tuesday (effective Sep 2025). Monthly expiry = last Tuesday of the month.
     """
     from datetime import date, timedelta
     import calendar
@@ -94,25 +96,25 @@ def _get_fo_expiry_context() -> str:
     from datetime import datetime
     today = datetime.now(pytz.timezone("Asia/Kolkata")).date()
 
-    # Find the last Thursday of this month
+    # Find the last Tuesday of this month
     year, month = today.year, today.month
     last_day = calendar.monthrange(year, month)[1]
-    last_thu = max(
+    last_tue = max(
         date(year, month, d)
         for d in range(last_day, 0, -1)
-        if date(year, month, d).weekday() == 3
+        if date(year, month, d).weekday() == 1
     )
 
-    is_weekly_expiry = today.weekday() == 3  # Thursday
-    is_monthly_expiry = is_weekly_expiry and today == last_thu
-    tomorrow_is_expiry = (today + timedelta(days=1)).weekday() == 3
+    is_weekly_expiry = today.weekday() == 1  # Tuesday
+    is_monthly_expiry = is_weekly_expiry and today == last_tue
+    tomorrow_is_expiry = (today + timedelta(days=1)).weekday() == 1
 
     if is_monthly_expiry:
-        return "⚠️ TODAY IS MONTHLY F&O EXPIRY. Strong pin-to-Max-Pain bias. Force NO TRADE unless a massive catalyst exists."
+        return "⚠️ TODAY IS MONTHLY F&O EXPIRY (Tuesday). Strong pin-to-Max-Pain bias. Force NO TRADE unless a massive catalyst exists."
     elif is_weekly_expiry:
-        return "⚠️ TODAY IS WEEKLY F&O EXPIRY (Thursday). Option writers defend Max Pain. Bias FLAT. Reduce confidence by 10%."
+        return "⚠️ TODAY IS WEEKLY F&O EXPIRY (Tuesday). Option writers defend Max Pain. Bias FLAT. Reduce confidence by 10%."
     elif tomorrow_is_expiry:
-        return "📅 TOMORROW IS F&O EXPIRY (Thursday). BTST positions carry overnight expiry risk — prefer NO TRADE or very tight targets."
+        return "📅 TOMORROW IS F&O EXPIRY (Tuesday). BTST positions carry overnight expiry risk — prefer NO TRADE or very tight targets."
     return "No F&O expiry today or tomorrow."
 
 
@@ -121,8 +123,13 @@ def _build_user_content(
     market_signals: dict,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
 ) -> str:
-    """Build enriched user prompt with all market signals, live heavyweights, FII/DII, and F&O expiry context."""
+    """Build enriched user prompt with all market signals, live heavyweights, FII/DII, and F&O expiry context.
+
+    past_context: formatted string of past NIFTY lessons from NiftyMemoryLog.load_past_context()
+                  (Phase D injection). Empty string = no memory yet.
+    """
     compact_news = [
         {"headline": item.get("headline"), "sector": item.get("sector"), "category": item.get("category")}
         for item in news_items[:15]
@@ -174,6 +181,14 @@ def _build_user_content(
     else:
         fii_text = "  • FII/DII data unavailable."
 
+    # Phase D: Inject past lessons from memory log (if any)
+    memory_section = (
+        f"\n\n{past_context}\n\n"
+        "Apply the above lessons when evaluating today's signals. Avoid repeating recently observed mistakes.\n"
+        if past_context.strip()
+        else ""
+    )
+
     return f"""
     NIFTY 50 Multi-Source Input Data:
 
@@ -197,7 +212,7 @@ def _build_user_content(
 {hw_text}
 
     📅 F&O Expiry Context: {fo_context}
-
+{memory_section}
     Evaluate across all 6 specialist dimensions and produce the BTST prediction JSON.
     """
 
@@ -348,15 +363,17 @@ def analyze_with_gemini(
     api_key: str,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
 ) -> dict[str, Any]:
     """
     Analyze market data strictly using Google Gemini AI Agent.
     If quota is reached (429), raises GeminiQuotaError with exact refresh time.
+    past_context: Phase D memory lessons injected into the prompt.
     """
     if not api_key:
         raise ValueError("GEMINI_API_KEY is not set.")
 
-    user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights)
+    user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights, past_context)
 
     payload = {
         "contents": [
@@ -415,8 +432,11 @@ def analyze_with_grok(
     api_key: str,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
 ) -> dict[str, Any] | None:
-    """Analyze market data using xAI Grok API."""
+    """Analyze market data using xAI Grok API.
+    past_context: Phase D memory lessons injected into the prompt.
+    """
     try:
         url = "https://api.x.ai/v1/chat/completions"
         headers = {
@@ -424,7 +444,7 @@ def analyze_with_grok(
             "Content-Type": "application/json"
         }
 
-        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights)
+        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights, past_context)
 
         for model in ["grok-2-1212", "grok-2", "grok-beta"]:
             payload = {
@@ -461,8 +481,11 @@ def analyze_with_groq(
     api_key: str,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
 ) -> dict[str, Any] | None:
-    """Analyze market data using Groq Cloud API (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b). Ultra-fast ~1s."""
+    """Analyze market data using Groq Cloud API (gpt-oss-120b, gpt-oss-20b, qwen3.6-27b). Ultra-fast ~1s.
+    past_context: Phase D memory lessons injected into the prompt.
+    """
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
@@ -470,7 +493,7 @@ def analyze_with_groq(
             "Content-Type": "application/json"
         }
 
-        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights)
+        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights, past_context)
 
         for model in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b", "groq/compound"]:
             payload = {
@@ -507,8 +530,11 @@ def analyze_with_openai(
     api_key: str,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
 ) -> dict[str, Any] | None:
-    """Analyze market data using OpenAI API (GPT-4o-mini)."""
+    """Analyze market data using OpenAI API (GPT-4o-mini).
+    past_context: Phase D memory lessons injected into the prompt.
+    """
     try:
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
@@ -516,7 +542,7 @@ def analyze_with_openai(
             "Content-Type": "application/json"
         }
 
-        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights)
+        user_content = _build_user_content(news_items, market_signals, fii_dii_data, heavyweights, past_context)
 
         payload = {
             "model": "gpt-4o-mini",
@@ -546,26 +572,56 @@ def analyze_with_ai_agents(
     market_signals: dict,
     fii_dii_data: dict | None = None,
     heavyweights: dict | None = None,
+    past_context: str = "",
+    run_debate: bool = False,
 ) -> dict[str, Any]:
     """
     6-Agent BTST Execution Engine:
     1. Primary: Groq Cloud (Ultra-Fast ~1s, Free, No Quota Blocks)
     2. Secondary: Google Gemini (gemini-2.5-flash)
+
+    run_debate: If True, runs the 3-agent debate committee (Stage 2) after Stage 1.
+                Adds btst_structure, trade_instruction, debate_consensus, and debate
+                fields to the response. Defaults to False for backward compatibility.
+                Automatically skipped if btst_bias == "NO TRADE".
+
+    past_context: Phase D memory lessons from NiftyMemoryLog.load_past_context().
+                  Pass "" (empty string) on first run (no memory yet).
     """
-    groq_key = os.environ.get("GROQ_API_KEY")
+    if past_context:
+        logger.info(f"Memory Phase D: Injecting {len(past_context.splitlines())} lines of past lessons into LLM prompt.")
+
+    groq_key   = os.environ.get("GROQ_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
+
+    res = None
 
     if groq_key:
         logger.info("Running 6-Agent BTST Analysis via Groq Cloud...")
-        res = analyze_with_groq(news_items, market_signals, groq_key, fii_dii_data, heavyweights)
-        if res:
-            return res
+        res = analyze_with_groq(news_items, market_signals, groq_key, fii_dii_data, heavyweights, past_context)
 
-    if gemini_key:
+    if not res and gemini_key:
         logger.info("Running 6-Agent BTST Analysis via Google Gemini API...")
-        return analyze_with_gemini(news_items, market_signals, gemini_key, fii_dii_data, heavyweights)
+        res = analyze_with_gemini(news_items, market_signals, gemini_key, fii_dii_data, heavyweights, past_context)
 
-    raise ValueError("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured in environment variables. Please add GROQ_API_KEY in Render Settings.")
+    if not res:
+        raise ValueError("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured in environment variables. Please add GROQ_API_KEY in Render Settings.")
+
+    # ── Stage 2: Multi-Persona Debate (optional) ───────────────────────────
+    if run_debate:
+        logger.info("[Debate] Stage 2 triggered — running 3-agent risk committee...")
+        try:
+            res = debate_engine.run_debate(
+                stage1_result=res,
+                market_signals=market_signals,
+                groq_key=groq_key or "",
+                gemini_key=gemini_key or "",
+            )
+        except Exception as e:
+            logger.error(f"[Debate] Debate stage failed unexpectedly: {e} — returning Stage 1 result.")
+
+    return res
+
 
 
 
@@ -577,3 +633,4 @@ if __name__ == "__main__":
         print("AI Agent Output:", output)
     except Exception as e:
         print("AI Agent Error:", e)
+

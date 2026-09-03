@@ -32,3 +32,6 @@ desktop.ini
 
 # History (ephemeral /tmp data — not for version control)
 history/
+
+# Graphify tool output
+graphify-out/

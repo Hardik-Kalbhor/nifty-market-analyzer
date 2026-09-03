@@ -171,7 +171,7 @@ class TestExitAdvisor(unittest.TestCase):
         print(f"✅ Test 7 Passed: OI Wall proximity (35pts) triggered {res['verdict']} for BUY_CE")
 
     def test_fast_path_expiry_day_short_profit_lock(self):
-        """Test 8: Thursday (expiry day) + SHORT_CE + 42% profit → PARTIAL_BOOK_70."""
+        """Test 8: Tuesday (expiry day) + SHORT_CE + 42% profit → PARTIAL_BOOK_70."""
         position = {
             "trade_type": "INTRADAY",
             "position_side": "SHORT_CE",
@@ -187,7 +187,7 @@ class TestExitAdvisor(unittest.TestCase):
             "top_oi_call_strike": 24500,
             "top_oi_put_strike": 24000,
         }
-        # Patch is_expiry_day() to return True (simulate Thursday)
+        # Patch is_expiry_day() to return True (simulate Tuesday expiry)
         with patch("exit_fast_path.is_expiry_day", return_value=True):
             res = evaluate_fast_path(position, live_signals)
 

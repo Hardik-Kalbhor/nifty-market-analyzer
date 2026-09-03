@@ -36,6 +36,13 @@ function initTabs() {
             switchTab(tab);
         });
     });
+
+    const refreshIntradayBtn = document.getElementById("btn-refresh-intraday");
+    if (refreshIntradayBtn) {
+        refreshIntradayBtn.addEventListener("click", () => {
+            startAnalysis();
+        });
+    }
 }
 
 function switchTab(tab) {
@@ -51,8 +58,20 @@ function switchTab(tab) {
         content.classList.toggle("active", content.id === `content-${tab}`);
     });
 
+    try {
+        if (history.replaceState) {
+            history.replaceState(null, "", `#${tab}`);
+        }
+    } catch (e) {}
+
     if (tab === "history") {
         loadHistoryList();
+    } else if (tab === "exit-advisor") {
+        const entrySpotInput = document.getElementById("entry-spot");
+        if (entrySpotInput && !entrySpotInput.value) {
+            const presetBtn = document.getElementById("btn-preset-btst");
+            if (presetBtn) presetBtn.click();
+        }
     }
 }
 
@@ -233,6 +252,7 @@ function renderDashboard(data) {
     safeExec(renderKeyDrivers, "renderKeyDrivers");
     safeExec(renderFactors, "renderFactors");
     safeExec(renderSectorSummary, "renderSectorSummary");
+    safeExec(renderBtstDebateCommittee, "renderBtstDebateCommittee");
 
     // Intraday Tab
     safeExec(renderIntradayPrediction, "renderIntradayPrediction");
@@ -325,8 +345,107 @@ function renderBtstAgentConsensus(data) {
     }
 }
 
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 3-Analyst BTST Risk Debate Committee
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const _BTST_PERSONA_META = {
+    aggressive:   { icon: "🚀", title: "Aggressive Analyst", sub: "Momentum & Overnight Gap" },
+    conservative: { icon: "🛡️", title: "Conservative Guardian", sub: "Theta Decay & DTE Defense" },
+    neutral:      { icon: "⚖️", title: "Neutral Risk Arbiter", sub: "Trade Structuring & R:R" },
+};
+
+function renderBtstDebateCommittee(data) {
+    const section = document.getElementById("btst-debate-section");
+    if (!section) return;
+
+    const debate = data.debate;
+    const structure = data.btst_structure;
+    const consensus = data.debate_consensus || (debate ? debate.consensus : null);
+    const instruction = data.trade_instruction;
+
+    // Badges
+    const structBadge = document.getElementById("btst-debate-structure-badge");
+    const consBadge = document.getElementById("btst-debate-consensus-badge");
+    const structLabel = document.getElementById("btst-judge-structure-label");
+    const actionEl = document.getElementById("btst-judge-action");
+    const ratEl = document.getElementById("btst-judge-rationale");
+
+    if (structBadge && structure) {
+        const s = structure.replace(/_/g, " ");
+        structBadge.textContent = s;
+        if (structLabel) structLabel.textContent = s;
+        if (s.includes("FULL") || s.includes("BUY")) {
+            structBadge.style.background = "rgba(34,197,94,0.15)";
+            structBadge.style.color = "#4ade80";
+            structBadge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (s.includes("NO TRADE") || s.includes("STRICT")) {
+            structBadge.style.background = "rgba(239,68,68,0.15)";
+            structBadge.style.color = "#f87171";
+            structBadge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            structBadge.style.background = "rgba(245,158,11,0.15)";
+            structBadge.style.color = "#fbbf24";
+            structBadge.style.borderColor = "rgba(245,158,11,0.3)";
+        }
+    }
+
+    if (consBadge && consensus) {
+        consBadge.textContent = consensus;
+        if (consensus === "UNANIMOUS") {
+            consBadge.style.background = "rgba(34,197,94,0.15)";
+            consBadge.style.color = "#4ade80";
+            consBadge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (consensus === "SPLIT") {
+            consBadge.style.background = "rgba(239,68,68,0.15)";
+            consBadge.style.color = "#f87171";
+            consBadge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            consBadge.style.background = "rgba(99,102,241,0.15)";
+            consBadge.style.color = "#a5b4fc";
+            consBadge.style.borderColor = "rgba(99,102,241,0.3)";
+        }
+    }
+
+    if (actionEl && instruction) {
+        actionEl.textContent = instruction;
+    }
+
+    if (!debate || typeof debate !== "object") return;
+
+    if (ratEl && debate.judge_rationale) {
+        ratEl.textContent = debate.judge_rationale;
+    }
+
+    for (const [key, meta] of Object.entries(_BTST_PERSONA_META)) {
+        const p = debate[key];
+        if (!p) continue;
+
+        const vEl = document.getElementById(`btst-verdict-${key}`);
+        const mEl = document.getElementById(`btst-meta-${key}`);
+        const rEl = document.getElementById(`btst-rationale-${key}`);
+
+        if (vEl && p.verdict) {
+            const vStr = p.verdict.replace(/_/g, " ");
+            vEl.textContent = vStr;
+            let vColor = "#fbbf24";
+            let vBg = "rgba(245,158,11,0.15)";
+            if (vStr.includes("FULL")) { vColor = "#4ade80"; vBg = "rgba(34,197,94,0.15)"; }
+            else if (vStr.includes("NO TRADE")) { vColor = "#f87171"; vBg = "rgba(239,68,68,0.15)"; }
+            vEl.style.color = vColor;
+            vEl.style.background = vBg;
+            vEl.style.borderColor = `${vColor}44`;
+        }
+
+        if (mEl) {
+            mEl.textContent = `${meta.sub} · ${p.confidence || 75}% Conf`;
+        }
+
+        if (rEl && p.rationale) {
+            rEl.textContent = p.rationale;
+        }
+    }
+}
 // Prediction Hero (BTST)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // (keeps renderPredictionHero as is...)
@@ -899,6 +1018,127 @@ function renderIntradayPrediction(data) {
 
     // ── Intraday Summary ──
     document.getElementById("intraday-summary-text").textContent = intraday.intraday_summary;
+
+    // ── 3-Analyst Intraday Debate Committee ──
+    renderIntradayDebateCommittee(intraday.debate);
+}
+
+const _INTRADAY_PERSONA_META = {
+    momentum_scalper: { icon: "🚀", title: "Momentum Scalper", sub: "ORB Breakout & Trend" },
+    wall_defender:    { icon: "🛡️", title: "Wall Defender", sub: "OI Resistance & Option Seller" },
+    tactical_scalper: { icon: "⚖️", title: "Tactical Manager", sub: "Pullbacks & R:R Execution" },
+};
+
+function renderIntradayDebateCommittee(debate) {
+    const section = document.getElementById("intraday-debate-section");
+    const grid = document.getElementById("intraday-debate-cards-grid");
+    const structBadge = document.getElementById("intraday-debate-structure-badge");
+    const consBadge = document.getElementById("intraday-debate-consensus-badge");
+    const entryEl = document.getElementById("intraday-judge-entry");
+    const targetEl = document.getElementById("intraday-judge-target");
+    const slEl = document.getElementById("intraday-judge-sl");
+    const actionEl = document.getElementById("intraday-judge-action");
+    const ratEl = document.getElementById("intraday-judge-rationale");
+
+    if (!section || !grid) return;
+
+    if (!debate || typeof debate !== "object" || !debate.momentum_scalper) {
+        section.style.display = "block";
+        return;
+    }
+
+    section.style.display = "block";
+
+    // Badges
+    if (structBadge) {
+        const s = (debate.structure || "SCALP DIPS").replace(/_/g, " ");
+        structBadge.textContent = s;
+        if (s.includes("CALL") || s.includes("BUY") || s.includes("DIPS")) {
+            structBadge.style.background = "rgba(34,197,94,0.15)";
+            structBadge.style.color = "#4ade80";
+            structBadge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (s.includes("PUT") || s.includes("PULLBACKS")) {
+            structBadge.style.background = "rgba(239,68,68,0.15)";
+            structBadge.style.color = "#f87171";
+            structBadge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            structBadge.style.background = "rgba(245,158,11,0.15)";
+            structBadge.style.color = "#fbbf24";
+            structBadge.style.borderColor = "rgba(245,158,11,0.3)";
+        }
+    }
+
+    if (consBadge) {
+        const consText = debate.consensus || "MAJORITY";
+        consBadge.textContent = consText;
+        if (consText === "UNANIMOUS") {
+            consBadge.style.background = "rgba(34,197,94,0.15)";
+            consBadge.style.color = "#4ade80";
+            consBadge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (consText === "SPLIT") {
+            consBadge.style.background = "rgba(239,68,68,0.15)";
+            consBadge.style.color = "#f87171";
+            consBadge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            consBadge.style.background = "rgba(99,102,241,0.15)";
+            consBadge.style.color = "#a5b4fc";
+            consBadge.style.borderColor = "rgba(99,102,241,0.3)";
+        }
+    }
+
+    // Populate 3 cards
+    grid.innerHTML = "";
+    for (const [key, meta] of Object.entries(_INTRADAY_PERSONA_META)) {
+        const p = debate[key];
+        if (!p) continue;
+
+        const card = document.createElement("div");
+        card.style.cssText = `
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        `;
+
+        const v = (p.verdict || "WAIT").replace(/_/g, " ");
+        let vColor = "#94a3b8";
+        let vBg = "rgba(148,163,184,0.15)";
+        if (v.includes("CALL") || v.includes("BUY") || v.includes("DIPS")) {
+            vColor = "#4ade80"; vBg = "rgba(34,197,94,0.15)";
+        } else if (v.includes("PUT") || v.includes("PULLBACKS")) {
+            vColor = "#f87171"; vBg = "rgba(239,68,68,0.15)";
+        } else if (v.includes("RANGE") || v.includes("OPTION")) {
+            vColor = "#fbbf24"; vBg = "rgba(245,158,11,0.15)";
+        }
+
+        let extraLevel = "";
+        if (p.trigger_level) extraLevel = `<div style="font-size:0.72rem;color:#38bdf8;">Trigger: ₹${p.trigger_level}</div>`;
+        else if (p.key_wall) extraLevel = `<div style="font-size:0.72rem;color:#f59e0b;">Key Wall: ₹${p.key_wall}</div>`;
+        else if (p.entry_zone) extraLevel = `<div style="font-size:0.72rem;color:#a78bfa;">Entry: ${escapeHtml(String(p.entry_zone))}</div>`;
+
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">${meta.icon} ${meta.title}</span>
+                <span style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:${vBg};color:${vColor};border:1px solid ${vColor}44;font-weight:700;">${escapeHtml(v)}</span>
+            </div>
+            <div style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">${meta.sub} · ${p.confidence || 70}% Conf</div>
+            <div style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
+                ${escapeHtml(p.rationale || "--")}
+            </div>
+            ${extraLevel}
+        `;
+        grid.appendChild(card);
+    }
+
+    // Judge Box
+    if (entryEl) entryEl.textContent = debate.entry_zone || "--";
+    if (targetEl) targetEl.textContent = debate.target ? `₹${debate.target}` : "--";
+    if (slEl) slEl.textContent = debate.stop_loss ? `₹${debate.stop_loss}` : "--";
+    if (actionEl) actionEl.textContent = debate.action_plan || "--";
+    if (ratEl) ratEl.textContent = debate.judge_rationale || "";
 }
 
 function getIntradayBiasClass(bias) {
@@ -1420,6 +1660,17 @@ function initExitAdvisor() {
         });
     }
 
+    const syncExitDebateBtn = document.getElementById("btn-sync-exit-debate");
+    if (syncExitDebateBtn) {
+        syncExitDebateBtn.addEventListener("click", () => {
+            const entrySpotInput = document.getElementById("entry-spot");
+            if (!entrySpotInput || !entrySpotInput.value) {
+                if (presetBtn) presetBtn.click();
+            }
+            evaluateLiveExit(true);
+        });
+    }
+
     if (autoPollToggle) {
         autoPollToggle.addEventListener("change", () => {
             if (autoPollToggle.checked) {
@@ -1433,6 +1684,12 @@ function initExitAdvisor() {
             }
         });
     }
+
+    // Initialize expiry day badge (Tuesday in IST)
+    const todayIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const isExpiryDay = todayIST.getDay() === 2; // 0=Sun, 1=Mon, 2=Tue
+    const expiryBadgeEl = document.getElementById("expiry-day-badge");
+    if (expiryBadgeEl) expiryBadgeEl.style.display = isExpiryDay ? "block" : "none";
 
     // ── Screenshot Upload & Paste Support ──
     initScreenshotUploader();
@@ -1683,9 +1940,9 @@ async function evaluateLiveExit(showLoadingState = true) {
     const placeholder = document.getElementById("exit-result-placeholder");
     const content = document.getElementById("exit-result-content");
 
-    // Show expiry day badge if today is Thursday (IST)
+    // Show expiry day badge if today is Tuesday (IST, effective Sep 2025)
     const todayIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const isExpiryDay = todayIST.getDay() === 4; // 0=Sun, 4=Thu
+    const isExpiryDay = todayIST.getDay() === 2; // 0=Sun, 1=Mon, 2=Tue
     const expiryBadgeEl = document.getElementById("expiry-day-badge");
     if (expiryBadgeEl) expiryBadgeEl.style.display = isExpiryDay ? "block" : "none";
 
@@ -1805,6 +2062,192 @@ function renderExitAdvisorResult(data) {
     if (reasoningText) {
         reasoningText.textContent = data.reasoning || "Evaluation based on live market conditions.";
     }
+
+    // Render Multi-Persona Exit Debate Committee cards
+    renderExitDebateCommittee(data.debate, data.debate_consensus, data);
+}
+
+const _EXIT_PERSONA_META = {
+    runner_analyst:   { icon: "🏃", title: "Runner Analyst", sub: "Momentum & Trend" },
+    capital_guardian: { icon: "🛡️", title: "Capital Guardian", sub: "Risk & Theta Defense" },
+    tactical_manager: { icon: "⚖️", title: "Tactical Manager", sub: "Scale-Out & Sizing" },
+};
+
+function renderExitDebateCommittee(debate, consensus, data) {
+    const fullSection = document.getElementById("exit-advisor-debate-full-section");
+    const section = document.getElementById("exit-debate-section");
+    const grid = document.getElementById("exit-debate-cards-grid");
+    const badge = document.getElementById("exit-debate-consensus-badge");
+    const judgeBox = document.getElementById("exit-judge-note-box");
+    const judgeText = document.getElementById("exit-judge-note-text");
+
+    // Full-width badges and elements
+    const fullStructBadge = document.getElementById("exit-full-debate-structure-badge");
+    const fullConsBadge = document.getElementById("exit-full-debate-consensus-badge");
+    const fullJudgeSl = document.getElementById("exit-full-judge-sl");
+    const fullJudgeCons = document.getElementById("exit-full-judge-consensus");
+    const fullJudgeAction = document.getElementById("exit-full-judge-action");
+    const fullJudgeRationale = document.getElementById("exit-full-judge-rationale");
+
+    if (fullSection) fullSection.style.display = "block";
+    if (section) section.style.display = "block";
+
+    const consText = consensus || (debate ? debate.consensus : null) || "MAJORITY";
+
+    if (badge) {
+        badge.textContent = consText;
+        if (consText === "UNANIMOUS") {
+            badge.style.background = "rgba(34,197,94,0.15)";
+            badge.style.color = "#4ade80";
+            badge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (consText === "SPLIT") {
+            badge.style.background = "rgba(239,68,68,0.15)";
+            badge.style.color = "#f87171";
+            badge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            badge.style.background = "rgba(99,102,241,0.15)";
+            badge.style.color = "#a5b4fc";
+            badge.style.borderColor = "rgba(99,102,241,0.3)";
+        }
+    }
+
+    if (fullConsBadge) {
+        fullConsBadge.textContent = consText;
+        if (consText === "UNANIMOUS") {
+            fullConsBadge.style.background = "rgba(34,197,94,0.15)";
+            fullConsBadge.style.color = "#4ade80";
+            fullConsBadge.style.borderColor = "rgba(34,197,94,0.3)";
+        } else if (consText === "SPLIT") {
+            fullConsBadge.style.background = "rgba(239,68,68,0.15)";
+            fullConsBadge.style.color = "#f87171";
+            fullConsBadge.style.borderColor = "rgba(239,68,68,0.3)";
+        } else {
+            fullConsBadge.style.background = "rgba(99,102,241,0.15)";
+            fullConsBadge.style.color = "#a5b4fc";
+            fullConsBadge.style.borderColor = "rgba(99,102,241,0.3)";
+        }
+    }
+
+    if (data && data.verdict && fullStructBadge) {
+        const v = data.verdict.replace(/_/g, " ");
+        fullStructBadge.textContent = v;
+        const bg = _verdictBg(data.verdict);
+        const border = _verdictBorder(data.verdict);
+        fullStructBadge.style.background = bg;
+        fullStructBadge.style.borderColor = border;
+        if (data.verdict.includes("HOLD")) fullStructBadge.style.color = "#4ade80";
+        else if (data.verdict.includes("EXIT")) fullStructBadge.style.color = "#f87171";
+        else fullStructBadge.style.color = "#fbbf24";
+    }
+
+    if (data && fullJudgeAction && data.action) {
+        fullJudgeAction.textContent = data.action;
+    }
+
+    if (data && fullJudgeSl && data.trailing_sl) {
+        fullJudgeSl.textContent = `₹${data.trailing_sl}`;
+    }
+
+    if (fullJudgeCons) {
+        fullJudgeCons.textContent = consText;
+    }
+
+    if (judgeBox && judgeText && debate && debate.judge_rationale) {
+        judgeBox.style.display = "block";
+        judgeText.textContent = debate.judge_rationale;
+    }
+
+    if (fullJudgeRationale && debate && debate.judge_rationale) {
+        fullJudgeRationale.textContent = debate.judge_rationale;
+    }
+
+    if (!debate || typeof debate !== "object") return;
+
+    // Render inner cards grid
+    if (grid) {
+        grid.innerHTML = "";
+        for (const [key, meta] of Object.entries(_EXIT_PERSONA_META)) {
+            const p = debate[key];
+            if (!p) continue;
+
+            const card = document.createElement("div");
+            card.style.cssText = `
+                background: rgba(255,255,255,0.03);
+                border: 1px solid rgba(255,255,255,0.07);
+                border-radius: 8px;
+                padding: 10px;
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            `;
+
+            const v = (p.verdict || "HOLD").replace(/_/g, " ");
+            const bg = _verdictBg(p.verdict);
+            const border = _verdictBorder(p.verdict);
+
+            card.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:0.75rem;font-weight:600;color:#f1f5f9;">${meta.icon} ${meta.title}</span>
+                    <span style="font-size:0.68rem;padding:2px 6px;border-radius:4px;background:${bg};border:1px solid ${border};font-weight:700;letter-spacing:0.02em;">${escapeHtml(v)}</span>
+                </div>
+                <div style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">${meta.sub} · ${p.confidence || 70}% Conf</div>
+                <div style="font-size:0.75rem;color:var(--text-secondary,#cbd5e1);line-height:1.35;margin-top:2px;">
+                    ${escapeHtml(p.rationale || "--")}
+                </div>
+                ${p.suggested_sl ? `<div style="font-size:0.68rem;color:#f59e0b;margin-top:2px;">Suggested SL: ₹${p.suggested_sl}</div>` : ""}
+            `;
+            grid.appendChild(card);
+        }
+    }
+
+    // Update full-width persona cards
+    const runner = debate.runner_analyst;
+    if (runner) {
+        const vEl = document.getElementById("exit-verdict-runner");
+        const mEl = document.getElementById("exit-meta-runner");
+        const rEl = document.getElementById("exit-rationale-runner");
+        const sEl = document.getElementById("exit-sl-runner");
+        if (vEl && runner.verdict) {
+            vEl.textContent = runner.verdict.replace(/_/g, " ");
+            vEl.style.background = _verdictBg(runner.verdict);
+            vEl.style.borderColor = _verdictBorder(runner.verdict);
+        }
+        if (mEl) mEl.textContent = `Momentum & Trend Expansion · ${runner.confidence || 80}% Conf`;
+        if (rEl && runner.rationale) rEl.textContent = runner.rationale;
+        if (sEl && runner.suggested_sl) sEl.textContent = `Suggested SL: ₹${runner.suggested_sl}`;
+    }
+
+    const guardian = debate.capital_guardian;
+    if (guardian) {
+        const vEl = document.getElementById("exit-verdict-guardian");
+        const mEl = document.getElementById("exit-meta-guardian");
+        const rEl = document.getElementById("exit-rationale-guardian");
+        const sEl = document.getElementById("exit-sl-guardian");
+        if (vEl && guardian.verdict) {
+            vEl.textContent = guardian.verdict.replace(/_/g, " ");
+            vEl.style.background = _verdictBg(guardian.verdict);
+            vEl.style.borderColor = _verdictBorder(guardian.verdict);
+        }
+        if (mEl) mEl.textContent = `Theta Decay & Capital Defense · ${guardian.confidence || 85}% Conf`;
+        if (rEl && guardian.rationale) rEl.textContent = guardian.rationale;
+        if (sEl && guardian.suggested_sl) sEl.textContent = `Suggested SL: ₹${guardian.suggested_sl}`;
+    }
+
+    const tactical = debate.tactical_manager;
+    if (tactical) {
+        const vEl = document.getElementById("exit-verdict-tactical");
+        const mEl = document.getElementById("exit-meta-tactical");
+        const rEl = document.getElementById("exit-rationale-tactical");
+        const sEl = document.getElementById("exit-sl-tactical");
+        if (vEl && tactical.verdict) {
+            vEl.textContent = tactical.verdict.replace(/_/g, " ");
+            vEl.style.background = _verdictBg(tactical.verdict);
+            vEl.style.borderColor = _verdictBorder(tactical.verdict);
+        }
+        if (mEl) mEl.textContent = `Scale-Out & Risk-Reward · ${tactical.confidence || 75}% Conf`;
+        if (rEl && tactical.rationale) rEl.textContent = tactical.rationale;
+        if (sEl && tactical.suggested_sl) sEl.textContent = `Suggested SL: ₹${tactical.suggested_sl}`;
+    }
 }
 
 const _DIMENSION_META = {
@@ -1881,9 +2324,42 @@ function renderFiiDiiContext(fiiDiiCtx, expiryCtx) {
     }
 }
 
+async function autoLoadLatestAnalysis() {
+    try {
+        const res = await fetch("/api/history");
+        const json = await res.json();
+        if (json.status !== "success") return;
+        const allRuns = [...(json.manual || []), ...(json.scheduled || [])];
+        if (allRuns.length === 0) return;
+
+        const latestRun = allRuns.find(r => r.filename && r.filename.startsWith("analysis_")) || allRuns[0];
+        if (!latestRun || !latestRun.filename) return;
+
+        const detailRes = await fetch(`/api/history/${encodeURIComponent(latestRun.filename)}`);
+        const detailJson = await detailRes.json();
+        if (detailJson.status === "success" && detailJson.data) {
+            renderDashboard(detailJson.data);
+            console.log("Auto-loaded latest analysis:", latestRun.filename);
+
+            const hash = (window.location.hash || "").replace("#", "").toLowerCase();
+            if (hash && ["btst", "intraday", "exit-advisor", "history"].includes(hash)) {
+                switchTab(hash);
+            }
+        }
+    } catch (e) {
+        console.warn("Auto-load latest analysis error:", e);
+    }
+}
+
 // Initialize on DOM load
 document.addEventListener("DOMContentLoaded", () => {
     initExitAdvisor();
+    autoLoadLatestAnalysis();
+
+    const hash = (window.location.hash || "").replace("#", "").toLowerCase();
+    if (hash && ["btst", "intraday", "exit-advisor", "history"].includes(hash)) {
+        switchTab(hash);
+    }
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -21,14 +21,16 @@ try:
 except ImportError:
     yf = None
 
+import yf_cache
+
 logger = logging.getLogger("ExitFastPath")
 TIMEZONE = pytz.timezone("Asia/Kolkata")
 
 
 def is_expiry_day() -> bool:
-    """Returns True if today is Thursday (NIFTY 50 weekly expiry day in IST)."""
+    """Returns True if today is Tuesday (NIFTY 50 weekly expiry day in IST, effective Sep 2025)."""
     now_ist = datetime.now(TIMEZONE)
-    return now_ist.weekday() == 3  # 0=Mon, 3=Thu
+    return now_ist.weekday() == 1  # 0=Mon, 1=Tue
 
 
 # Top 5 NIFTY heavyweights accounting for ~39% index weight
@@ -44,46 +46,25 @@ HEAVYWEIGHT_TICKERS = {
 def fetch_heavyweight_stocks() -> dict[str, Any]:
     """
     Concurrently fetch live price and percent change for top 5 NIFTY heavyweights.
-    Executes in ~200-350ms using direct Yahoo Finance chart API with yfinance fallback.
+    Executes in ~200-350ms using yf_cache (shared retry + 5-min cache) with yfinance fallback.
     """
-    import requests
     stocks = {}
 
     def _fetch_single(ticker: str, meta: dict):
-        # 1. Direct high-speed Yahoo Chart API (<250ms)
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-        }
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}?interval=1d&range=5d"
+        # 1. yf_cache — cached, retried Yahoo Chart API (~0ms on hit, <300ms on miss)
         try:
-            r = requests.get(url, headers=headers, timeout=3.0)
-            if r.status_code == 200:
-                data = r.json()
-                res = data.get("chart", {}).get("result", [])
-                if res:
-                    m = res[0].get("meta", {})
-                    last_price = m.get("regularMarketPrice")
-                    chg_pct = m.get("regularMarketChangePercent")
-                    if chg_pct is None:
-                        prev = m.get("chartPreviousClose") or m.get("previousClose")
-                        if last_price and prev and prev > 0:
-                            chg_pct = ((last_price - prev) / prev) * 100
-                    if last_price is not None and chg_pct is not None:
-                        return ticker, {
-                            "name": meta["name"],
-                            "weight": meta["weight"],
-                            "price": round(float(last_price), 2),
-                            "change_pct": round(float(chg_pct), 2),
-                        }
+            quote = yf_cache.fetch_quote(ticker, timeout=3.0)
+            if quote:
+                return ticker, {
+                    "name": meta["name"],
+                    "weight": meta["weight"],
+                    "price": quote["price"],
+                    "change_pct": quote["change_pct"],
+                }
         except Exception as e:
-            logger.debug(f"Direct chart fetch failed for {ticker}: {e}")
+            logger.debug(f"yf_cache failed for {ticker}: {e}")
 
-        # 2. Fallback to yfinance if direct HTTP had an issue
+        # 2. Fallback to yfinance library if cache also fails
         if yf:
             try:
                 t = yf.Ticker(ticker)
@@ -101,6 +82,7 @@ def fetch_heavyweight_stocks() -> dict[str, Any]:
             except Exception as e:
                 logger.debug(f"Error fetching {ticker} via yfinance: {e}")
         return ticker, None
+
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
         futures = [
@@ -231,7 +213,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
                 "is_fast_path": True,
             }
 
-    # 5. Expiry Day Theta Profit Lock (Thursday only — short sellers)
+    # 5. Expiry Day Theta Profit Lock (Tuesday only — short sellers)
     # On expiry day, theta collapses dramatically in the last 2 hours.
     # If a short option seller is already at +40%+ profit, lock it before whipsaw.
     if is_expiry_day() and entry_premium > 0 and current_premium > 0:
@@ -246,7 +228,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
                     "urgency": "HIGH",
                     "engine": "Deterministic Fast-Path (Expiry Day Theta Lock)",
                     "reasoning": (
-                        f"Today is weekly NIFTY expiry day (Thursday). Premium has decayed {prem_pnl_pct:.1f}% "
+                        f"Today is weekly NIFTY expiry day (Tuesday). Premium has decayed {prem_pnl_pct:.1f}% "
                         f"(₹{entry_premium} → ₹{current_premium}). Theta collapse accelerates sharply post-13:00 IST — "
                         f"lock the majority of gains before option expiry volatility whipsaw."
                     ),
