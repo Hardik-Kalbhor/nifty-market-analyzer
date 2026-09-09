@@ -88,6 +88,11 @@
                 <span>Analysis History</span>
                 <span class="tab-btn__hint">Past Scheduled Runs</span>
             </button>
+            <button class="tab-btn" data-tab="cognigraph" id="tab-cognigraph">
+                <span class="tab-btn__icon">🧠</span>
+                <span>CogniGraph & Dreaming</span>
+                <span class="tab-btn__hint">Causal Memory & Exits</span>
+            </button>
         </nav>
 
         <!-- ════════════════════════════════════════════ -->
@@ -726,6 +731,47 @@
                             <div class="exit-action-text" id="exit-action-text">--</div>
                         </div>
 
+                        <!-- Contrarian Shield Alert Banner -->
+                        <div id="exit-contrarian-shield" style="display:none;margin-bottom:12px;padding:10px 14px;border-radius:8px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.35);color:#fca5a5;font-size:0.80rem;line-height:1.4;">
+                            <div style="font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:4px;color:#f87171;">
+                                <span>🛡️</span>
+                                <span id="exit-contrarian-title">Contrarian Trap Shield Active</span>
+                            </div>
+                            <div id="exit-contrarian-desc">--</div>
+                        </div>
+
+                        <!-- CogniGraph Causal Regime Banner -->
+                        <div id="exit-cognigraph-banner" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.25);color:#c7d2fe;font-size:0.76rem;line-height:1.35;">
+                            <div style="font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:2px;color:#a5b4fc;">
+                                <span>🧠</span>
+                                <span>CogniGraph Regime Memory Precedent</span>
+                                <span id="exit-cognigraph-regime-tag" style="margin-left:auto;font-size:0.68rem;padding:2px 6px;border-radius:4px;background:rgba(99,102,241,0.25);color:#e0e7ff;font-family:monospace;">--</span>
+                            </div>
+                            <div id="exit-cognigraph-precedent-text">--</div>
+                        </div>
+
+                        <!-- 3-Tier Scale-Out Execution Plan -->
+                        <div id="exit-scale-out-card" style="display:none;margin-bottom:14px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.09);">
+                            <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#94a3b8;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                                <span>⚖️</span>
+                                <span>Defender vs. Hawk 3-Tier Scale-Out Plan</span>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:6px;">
+                                <div class="scale-out-tier-row" id="tier-1-row" style="display:flex;align-items:flex-start;gap:8px;font-size:0.78rem;line-height:1.4;">
+                                    <span class="scale-out-badge tier-1-badge" style="padding:2px 8px;border-radius:4px;background:rgba(34,197,94,0.18);border:1px solid rgba(34,197,94,0.35);color:#4ade80;font-weight:700;white-space:nowrap;font-size:0.70rem;">TIER 1 · LOCK</span>
+                                    <span id="tier-1-text" style="color:#e2e8f0;">--</span>
+                                </div>
+                                <div class="scale-out-tier-row" id="tier-2-row" style="display:flex;align-items:flex-start;gap:8px;font-size:0.78rem;line-height:1.4;">
+                                    <span class="scale-out-badge tier-2-badge" style="padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.18);border:1px solid rgba(245,158,11,0.35);color:#fbbf24;font-weight:700;white-space:nowrap;font-size:0.70rem;">TIER 2 · DEFEND</span>
+                                    <span id="tier-2-text" style="color:#e2e8f0;">--</span>
+                                </div>
+                                <div class="scale-out-tier-row" id="tier-3-row" style="display:flex;align-items:flex-start;gap:8px;font-size:0.78rem;line-height:1.4;">
+                                    <span class="scale-out-badge tier-3-badge" style="padding:2px 8px;border-radius:4px;background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.35);color:#a5b4fc;font-weight:700;white-space:nowrap;font-size:0.70rem;">TIER 3 · RUNNER</span>
+                                    <span id="tier-3-text" style="color:#e2e8f0;">--</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Metrics Grid -->
                         <div class="exit-metrics-grid">
                             <div class="exit-metric-item">
@@ -779,9 +825,9 @@
                             </div>
                         </div>
 
-                        <!-- 6-Agent Dimension Score Cards -->
+                        <!-- 7-Agent Dimension Score Cards -->
                         <div id="exit-dimension-scores" style="display:none;margin-top:14px;">
-                            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;opacity:0.5;margin-bottom:8px;">🤖 6-Perspective Agent Analysis</div>
+                            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;opacity:0.5;margin-bottom:8px;">🤖 7-Perspective Specialist Analysis</div>
                             <div id="exit-dimension-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;"></div>
                         </div>
                     </div>
@@ -868,6 +914,19 @@
                     <div id="exit-full-judge-rationale" style="font-size:0.78rem;color:var(--text-secondary,#94a3b8);line-height:1.45;">
                         Majority committee consensus agrees on partial de-risking: locking in partial gains shields capital against the 24000 Call OI wall while allowing remaining lots to capture further trend expansion.
                     </div>
+
+                    <!-- Full-Width Judge Scale-Out Plan -->
+                    <div id="exit-full-scale-out-box" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);">
+                        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                            <span>🎯</span>
+                            <span>Multi-Tier Lot Execution Plan</span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:5px;">
+                            <div style="font-size:0.78rem;color:#e2e8f0;" id="exit-full-tier-1"></div>
+                            <div style="font-size:0.78rem;color:#e2e8f0;" id="exit-full-tier-2"></div>
+                            <div style="font-size:0.78rem;color:#e2e8f0;" id="exit-full-tier-3"></div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -919,6 +978,153 @@
             </section>
         </div>
 
+        <!-- ════════════════════════════════════════════ -->
+        <!-- TAB: COGNIGRAPH & POST-MARKET DREAMING       -->
+        <!-- ════════════════════════════════════════════ -->
+        <div class="tab-content" id="content-cognigraph">
+            <!-- Top Controls & Status Bar -->
+            <div class="card animate-in" style="margin-bottom: 24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                    <div>
+                        <h2 style="margin:0 0 4px 0;font-size:1.25rem;display:flex;align-items:center;gap:8px;">
+                            <span>🧠</span>
+                            <span>CogniGraph &amp; Post-Market Dreaming Console</span>
+                        </h2>
+                        <div style="font-size:0.80rem;color:var(--text-muted);">
+                            3-Tier Dynamic Causal Memory · 30-Day Half-Life Decay · Autonomous Post-Market Consolidation · Trajectory Datasets
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <button type="button" id="btn-refresh-cognigraph" class="btn btn-secondary" style="padding:6px 12px;font-size:0.78rem;display:flex;align-items:center;gap:4px;">
+                            <span>🔄</span>
+                            <span>Refresh Memory</span>
+                        </button>
+                        <button type="button" id="btn-run-dreaming" class="btn btn-primary" style="padding:6px 14px;font-size:0.78rem;display:flex;align-items:center;gap:6px;">
+                            <span>🌙</span>
+                            <span>Consolidate &amp; Dream Now</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Two-Column Grid: CogniGraph Explorer + Post-Market Dreaming -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:24px;margin-bottom:24px;">
+                
+                <!-- Panel 1: CogniGraph Causal Memory Viewer -->
+                <div class="card animate-in">
+                    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="section-title__icon">🕸️</span>
+                            <span>Causal Memory Graph</span>
+                        </div>
+                        <span id="cognigraph-active-regime-badge" style="font-family:monospace;font-size:0.70rem;padding:3px 8px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
+                            REGIME: LOADING...
+                        </span>
+                    </div>
+
+                    <!-- Persona Selector Pills -->
+                    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;" id="cognigraph-persona-pills">
+                        <button type="button" class="persona-pill-btn active" data-persona="CONSERVATIVE">🛡️ Conservative</button>
+                        <button type="button" class="persona-pill-btn" data-persona="AGGRESSIVE">⚡ Aggressive</button>
+                        <button type="button" class="persona-pill-btn" data-persona="NEUTRAL">⚖️ Neutral</button>
+                        <button type="button" class="persona-pill-btn" data-persona="JUDGE">👨‍⚖️ Judge</button>
+                    </div>
+
+                    <!-- Persona Precedent Output Box -->
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);min-height:130px;margin-bottom:16px;">
+                        <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;" id="cognigraph-persona-title">
+                            🛡️ Conservative Failure Precedents &amp; Traps
+                        </div>
+                        <div id="cognigraph-persona-content" style="font-size:0.78rem;color:#cbd5e1;line-height:1.45;white-space:pre-wrap;max-height:180px;overflow-y:auto;">
+                            Loading persona memory projection...
+                        </div>
+                    </div>
+
+                    <!-- Top Active Causal Traps List -->
+                    <div style="font-size:0.74rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                        <span>🚨 Active Empirical Failure Traps</span>
+                        <span id="cognigraph-traps-count" style="font-size:0.68rem;color:var(--text-muted);">0 traps</span>
+                    </div>
+                    <div id="cognigraph-traps-list" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;">
+                        <div style="font-size:0.76rem;color:var(--text-muted);padding:8px 0;">Loading active failure traps...</div>
+                    </div>
+                </div>
+
+                <!-- Panel 2: Post-Market Dreaming & Exit Audit Scorecard -->
+                <div class="card animate-in">
+                    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span class="section-title__icon">🌙</span>
+                            <span>Post-Market Dreaming (20:00 IST)</span>
+                        </div>
+                        <span id="dreaming-last-run-badge" style="font-size:0.70rem;padding:3px 8px;border-radius:6px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">
+                            STATUS: READY
+                        </span>
+                    </div>
+
+                    <!-- Scorecard 4-Metric Grid -->
+                    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px;">
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                            <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:2px;">Exit Effectiveness</div>
+                            <div id="dreaming-metric-score" style="font-size:1.35rem;font-weight:700;color:#34d399;">--%</div>
+                        </div>
+                        <div style="padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                            <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:2px;">Exits Audited</div>
+                            <div id="dreaming-metric-total" style="font-size:1.35rem;font-weight:700;color:#60a5fa;">--</div>
+                        </div>
+                        <div style="padding:10px;border-radius:8px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.2);text-align:center;">
+                            <div style="font-size:0.70rem;color:#86efac;margin-bottom:2px;">Timely Profit Locks</div>
+                            <div id="dreaming-metric-locks" style="font-size:1.20rem;font-weight:700;color:#4ade80;">--</div>
+                        </div>
+                        <div style="padding:10px;border-radius:8px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);text-align:center;">
+                            <div style="font-size:0.70rem;color:#fca5a5;margin-bottom:2px;">Lethal Hold Errors</div>
+                            <div id="dreaming-metric-lethal" style="font-size:1.20rem;font-weight:700;color:#f87171;">--</div>
+                        </div>
+                    </div>
+
+                    <!-- Synthesized Macro Axioms -->
+                    <div style="font-size:0.74rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                        <span>📜 Empirical Macro Axioms</span>
+                        <span id="dreaming-axioms-count" style="font-size:0.68rem;color:var(--text-muted);">0 active</span>
+                    </div>
+                    <div id="dreaming-axioms-list" style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow-y:auto;">
+                        <div style="font-size:0.76rem;color:var(--text-muted);padding:8px 0;">Loading macro axioms...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel 3: Trajectory Dataset Exporter for Fine-Tuning -->
+            <div class="card animate-in" style="margin-bottom:32px;">
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="section-title__icon">📦</span>
+                        <span>LLM Trajectory Dataset Fine-Tuning Exporter</span>
+                    </div>
+                    <span id="trajectory-episodes-count-badge" style="font-size:0.72rem;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
+                        HARVESTED EPISODES: --
+                    </span>
+                </div>
+                <div style="font-size:0.80rem;color:var(--text-secondary,#cbd5e1);margin-bottom:16px;line-height:1.45;">
+                    Export logged trading decisions, multi-agent debates, and post-market reflections into standardized instruction datasets ready for fine-tuning open-weights models (LLaMA-3, Qwen-2.5, Mistral) or RLHF/DPO preference alignment.
+                </div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+                    <button type="button" class="btn btn-secondary" id="btn-export-sharegpt" style="font-size:0.80rem;display:flex;align-items:center;gap:6px;">
+                        <span>💬</span>
+                        <span>Export ShareGPT</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btn-export-alpaca" style="font-size:0.80rem;display:flex;align-items:center;gap:6px;">
+                        <span>🦙</span>
+                        <span>Export Alpaca / Hermes</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="btn-export-dpo" style="font-size:0.80rem;display:flex;align-items:center;gap:6px;">
+                        <span>⚖️</span>
+                        <span>Export DPO Preference</span>
+                    </button>
+                    <span id="trajectory-export-status" style="font-size:0.78rem;color:#34d399;margin-left:auto;display:none;"></span>
+                </div>
+            </div>
+        </div>
+
     </main>
 
     <!-- ── Footer ─────────────────────────────────── -->
@@ -936,7 +1142,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=28.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=29.0"></script>
 
 
 

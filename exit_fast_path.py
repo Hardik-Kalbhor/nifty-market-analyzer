@@ -120,18 +120,21 @@ def fetch_heavyweight_stocks() -> dict[str, Any]:
 
 
 
-def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """
-    Evaluates 0-10ms deterministic safety conditions.
-    Returns an immediate exit dict if an emergency/cutoff condition is met; otherwise returns None.
+def _get_now_ist() -> datetime:
+    """Return current timestamp in IST timezone (mockable for unit tests)."""
+    return datetime.now(TIMEZONE)
 
-    Checks:
-    1. Pre-Close Mandatory Cutoff (15:15+ IST for Intraday positions)
+
+def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any], current_time: Optional[datetime] = None) -> Optional[dict[str, Any]]:
+    """
+    Deterministic safety engine executing in <10ms.
+    Evaluates hard circuit breakers in priority order:
+    1. 15:15 IST Mandatory Pre-Close Square-Off for Intraday Trades
     2. Extreme India VIX Spike (>= 4.0% intraday jump)
     3. Severe Adverse Spot Invalidation (>= 0.60% adverse underlying move)
     4. Hard Stop Loss Hit on Option Premium (e.g. >= 25-30% loss)
     """
-    now_ist = datetime.now(TIMEZONE)
+    now_ist = current_time or _get_now_ist()
     trade_type = str(position.get("trade_type", "INTRADAY")).upper()
     side = str(position.get("position_side", "BUY_CE")).upper()
     entry_spot = _safe_float(position.get("entry_spot"), 0.0)

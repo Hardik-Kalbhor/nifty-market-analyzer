@@ -74,8 +74,16 @@ class TestEndToEndSystemFeatures(unittest.TestCase):
                 if os.path.isdir(s):
                     shutil.copytree(s, d)
 
+        # Patch IST time to 11:30 AM so deterministic tests are immune to real-world 15:15 market close cutoffs
+        from datetime import datetime
+        import pytz
+        from unittest.mock import patch
+        cls.time_patcher = patch("exit_fast_path._get_now_ist", return_value=datetime(2026, 9, 9, 11, 30, tzinfo=pytz.timezone("Asia/Kolkata")))
+        cls.time_patcher.start()
+
     @classmethod
     def tearDownClass(cls):
+        cls.time_patcher.stop()
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     # ── 1. News Scraping & 4-Layer NLP Sentiment Engine ────────────────────────

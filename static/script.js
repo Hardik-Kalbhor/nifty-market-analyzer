@@ -72,6 +72,10 @@ function switchTab(tab) {
             const presetBtn = document.getElementById("btn-preset-btst");
             if (presetBtn) presetBtn.click();
         }
+    } else if (tab === "cognigraph") {
+        loadCogniGraphData();
+        loadDreamingData();
+        loadTrajectoryStats();
     }
 }
 
@@ -2063,6 +2067,46 @@ function renderExitAdvisorResult(data) {
         reasoningText.textContent = data.reasoning || "Evaluation based on live market conditions.";
     }
 
+    // Contrarian Shield Banner
+    const contrarianShield = document.getElementById("exit-contrarian-shield");
+    const contrarianTitle = document.getElementById("exit-contrarian-title");
+    const contrarianDesc = document.getElementById("exit-contrarian-desc");
+    const contrarianWarn = data.contrarian_warning || (data.social_sentiment && data.social_sentiment.contrarian_warning);
+    if (contrarianShield && contrarianWarn) {
+        contrarianShield.style.display = "block";
+        if (contrarianTitle) contrarianTitle.textContent = "🛡️ Contrarian Trap Shield Active";
+        if (contrarianDesc) contrarianDesc.textContent = contrarianWarn;
+    } else if (contrarianShield) {
+        contrarianShield.style.display = "none";
+    }
+
+    // CogniGraph Regime Memory Banner
+    const cognigraphBanner = document.getElementById("exit-cognigraph-banner");
+    const cognigraphTag = document.getElementById("exit-cognigraph-regime-tag");
+    const cognigraphText = document.getElementById("exit-cognigraph-precedent-text");
+    if (cognigraphBanner && (data.cognigraph_regime || data.cognigraph_regime_precedent)) {
+        cognigraphBanner.style.display = "block";
+        if (cognigraphTag) cognigraphTag.textContent = data.cognigraph_regime || "REGIME ACTIVE";
+        if (cognigraphText) cognigraphText.textContent = data.cognigraph_regime_precedent || "Active market regime matching causal history.";
+    } else if (cognigraphBanner) {
+        cognigraphBanner.style.display = "none";
+    }
+
+    // 3-Tier Scale-Out Execution Plan Card
+    const scaleOutCard = document.getElementById("exit-scale-out-card");
+    const tier1Text = document.getElementById("tier-1-text");
+    const tier2Text = document.getElementById("tier-2-text");
+    const tier3Text = document.getElementById("tier-3-text");
+    const scaleOutPlan = data.scale_out_plan || (data.debate && data.debate.scale_out_plan);
+    if (scaleOutCard && scaleOutPlan) {
+        scaleOutCard.style.display = "block";
+        if (tier1Text) tier1Text.textContent = scaleOutPlan.tier_1 || "--";
+        if (tier2Text) tier2Text.textContent = scaleOutPlan.tier_2 || "--";
+        if (tier3Text) tier3Text.textContent = scaleOutPlan.tier_3 || "--";
+    } else if (scaleOutCard) {
+        scaleOutCard.style.display = "none";
+    }
+
     // Render Multi-Persona Exit Debate Committee cards
     renderExitDebateCommittee(data.debate, data.debate_consensus, data);
 }
@@ -2161,6 +2205,21 @@ function renderExitDebateCommittee(debate, consensus, data) {
         fullJudgeRationale.textContent = debate.judge_rationale;
     }
 
+    // Full-Width Judge Scale-Out Plan
+    const fullScaleOutBox = document.getElementById("exit-full-scale-out-box");
+    const fullTier1 = document.getElementById("exit-full-tier-1");
+    const fullTier2 = document.getElementById("exit-full-tier-2");
+    const fullTier3 = document.getElementById("exit-full-tier-3");
+    const plan = data?.scale_out_plan || debate?.scale_out_plan;
+    if (fullScaleOutBox && plan) {
+        fullScaleOutBox.style.display = "block";
+        if (fullTier1) fullTier1.innerHTML = `<strong style="color:#4ade80;">Tier 1 (Lock):</strong> ${escapeHtml(plan.tier_1 || "--")}`;
+        if (fullTier2) fullTier2.innerHTML = `<strong style="color:#fbbf24;">Tier 2 (Defend):</strong> ${escapeHtml(plan.tier_2 || "--")}`;
+        if (fullTier3) fullTier3.innerHTML = `<strong style="color:#a5b4fc;">Tier 3 (Runner):</strong> ${escapeHtml(plan.tier_3 || "--")}`;
+    } else if (fullScaleOutBox) {
+        fullScaleOutBox.style.display = "none";
+    }
+
     if (!debate || typeof debate !== "object") return;
 
     // Render inner cards grid
@@ -2251,12 +2310,13 @@ function renderExitDebateCommittee(debate, consensus, data) {
 }
 
 const _DIMENSION_META = {
-    greeks_decay:  { icon: "📐", label: "Greeks & Decay" },
-    oi_pcr:        { icon: "📊", label: "OI / PCR" },
-    heavyweights:  { icon: "🏛️", label: "Heavyweights" },
-    price_action:  { icon: "📈", label: "Price Action" },
-    vix_regime:    { icon: "⚡", label: "VIX Regime" },
-    macro_global:  { icon: "🌍", label: "Macro & Global" },
+    greeks_decay:      { icon: "📐", label: "Greeks & Decay" },
+    oi_pcr:            { icon: "📊", label: "OI / PCR" },
+    heavyweights:      { icon: "🏛️", label: "Heavyweights" },
+    price_action:      { icon: "📈", label: "Price Action" },
+    vix_regime:        { icon: "⚡", label: "VIX Regime" },
+    macro_global:      { icon: "🌍", label: "Macro & Global" },
+    social_contrarian: { icon: "👥", label: "Social Contrarian" },
 };
 
 function _verdictBg(v) {
@@ -2355,9 +2415,10 @@ async function autoLoadLatestAnalysis() {
 document.addEventListener("DOMContentLoaded", () => {
     initExitAdvisor();
     autoLoadLatestAnalysis();
+    initCogniGraphTabListeners();
 
     const hash = (window.location.hash || "").replace("#", "").toLowerCase();
-    if (hash && ["btst", "intraday", "exit-advisor", "history"].includes(hash)) {
+    if (hash && ["btst", "intraday", "exit-advisor", "history", "cognigraph"].includes(hash)) {
         switchTab(hash);
     }
 });
@@ -2602,3 +2663,231 @@ async function fetchAndRenderInstitutionalRadar() {
         console.warn("Institutional radar fetch failed:", e);
     }
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🧠 CogniGraph Causal Memory & Dreaming Console
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+let activeCogniGraphPersona = "CONSERVATIVE";
+
+async function loadCogniGraphData(persona = null) {
+    if (persona) activeCogniGraphPersona = persona;
+    const regimeBadge = document.getElementById("cognigraph-active-regime-badge");
+    const personaTitle = document.getElementById("cognigraph-persona-title");
+    const personaContent = document.getElementById("cognigraph-persona-content");
+    const trapsList = document.getElementById("cognigraph-traps-list");
+    const trapsCount = document.getElementById("cognigraph-traps-count");
+
+    try {
+        const res = await fetch(`/api/cognigraph?persona=${encodeURIComponent(activeCogniGraphPersona)}`);
+        const json = await res.json();
+        if (json.status !== "ok" || !json.data) return;
+
+        const data = json.data;
+
+        // Active Regime Signature
+        if (regimeBadge) {
+            regimeBadge.textContent = `REGIME: ${data.active_regime || "DEFAULT"}`;
+        }
+
+        // Persona Output Box
+        if (personaTitle) {
+            const icons = { CONSERVATIVE: "🛡️", AGGRESSIVE: "⚡", NEUTRAL: "⚖️", JUDGE: "👨‍⚖️" };
+            personaTitle.textContent = `${icons[activeCogniGraphPersona] || "👤"} ${activeCogniGraphPersona} Causal Precedents`;
+        }
+        if (personaContent) {
+            personaContent.textContent = data.persona_context || `No specific causal memory precedents retrieved for ${activeCogniGraphPersona}. Using baseline institutional priors.`;
+        }
+
+        // Active Failure Traps List
+        if (trapsList) {
+            const topTraps = data.top_traps || [];
+            if (trapsCount) trapsCount.textContent = `${topTraps.length} active`;
+            if (topTraps.length === 0) {
+                trapsList.innerHTML = `<div style="font-size:0.76rem;color:var(--text-muted);padding:8px 0;">No active failure traps recorded for this regime yet.</div>`;
+            } else {
+                trapsList.innerHTML = topTraps.map(trap => {
+                    const isNeg = (trap.polarity || "NEGATIVE") === "NEGATIVE";
+                    const icon = isNeg ? "⚠️" : "💡";
+                    const badgeClass = isNeg ? "negative" : "positive";
+                    const weightPct = Math.round((trap.weight || 1.0) * 100);
+                    return `
+                        <div class="trap-card-item ${badgeClass}">
+                            <div>
+                                <span style="font-weight:700;color:#f8fafc;">${icon} ${escapeHtml(trap.subject || "")}</span>
+                                <span style="opacity:0.65;"> · ${escapeHtml(trap.predicate || "")} · </span>
+                                <span style="color:${isNeg ? '#f87171' : '#4ade80'};font-weight:600;">${escapeHtml(trap.object || "")}</span>
+                            </div>
+                            <span style="font-family:monospace;font-size:0.70rem;opacity:0.8;white-space:nowrap;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,0.05);">
+                                W:${weightPct}%
+                            </span>
+                        </div>
+                    `;
+                }).join("");
+            }
+        }
+    } catch (e) {
+        console.warn("loadCogniGraphData failed:", e);
+    }
+}
+
+async function loadDreamingData() {
+    const lastRunBadge = document.getElementById("dreaming-last-run-badge");
+    const metricScore = document.getElementById("dreaming-metric-score");
+    const metricTotal = document.getElementById("dreaming-metric-total");
+    const metricLocks = document.getElementById("dreaming-metric-locks");
+    const metricLethal = document.getElementById("dreaming-metric-lethal");
+    const axiomsList = document.getElementById("dreaming-axioms-list");
+    const axiomsCount = document.getElementById("dreaming-axioms-count");
+
+    try {
+        const res = await fetch("/api/dreaming/status");
+        const json = await res.json();
+        if (json.status !== "ok" || !json.data) return;
+
+        const data = json.data;
+        const report = data.latest_report || {};
+        const audit = report.exit_advisor_audit || {};
+
+        if (lastRunBadge) {
+            lastRunBadge.textContent = report.timestamp ? `LAST RUN: ${report.timestamp.split(" ")[1] || report.timestamp}` : "STATUS: READY";
+        }
+
+        // Scorecard Metrics
+        if (metricScore) {
+            const score = audit.effectiveness_score_pct != null ? audit.effectiveness_score_pct : 100.0;
+            metricScore.textContent = `${Math.round(score)}%`;
+            metricScore.style.color = score >= 80 ? "#34d399" : score >= 50 ? "#fbbf24" : "#f87171";
+        }
+        if (metricTotal) {
+            metricTotal.textContent = audit.total_exits_audited != null ? audit.total_exits_audited : (report.exit_episodes_processed || 0);
+        }
+        if (metricLocks) {
+            metricLocks.textContent = audit.timely_profit_locks != null ? audit.timely_profit_locks : 0;
+        }
+        if (metricLethal) {
+            metricLethal.textContent = audit.lethal_hold_errors != null ? audit.lethal_hold_errors : 0;
+        }
+
+        // Macro Axioms List
+        if (axiomsList) {
+            const axioms = data.macro_axioms || [];
+            if (axiomsCount) axiomsCount.textContent = `${axioms.length} active`;
+            if (axioms.length === 0) {
+                axiomsList.innerHTML = `<div style="font-size:0.76rem;color:var(--text-muted);padding:8px 0;">No macro axioms synthesized yet. Click "Consolidate & Dream Now" to generate.</div>`;
+            } else {
+                axiomsList.innerHTML = axioms.map(ax => {
+                    const rule = ax.rule || ax.description || ax.axiom_id;
+                    const cleanId = (ax.axiom_id || "").replace(/_/g, " ");
+                    return `
+                        <div class="macro-axiom-card">
+                            <div style="font-weight:700;color:#a5b4fc;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;">
+                                📜 ${escapeHtml(cleanId)}
+                            </div>
+                            <div style="color:#e2e8f0;font-size:0.76rem;">
+                                ${escapeHtml(rule)}
+                            </div>
+                        </div>
+                    `;
+                }).join("");
+            }
+        }
+    } catch (e) {
+        console.warn("loadDreamingData failed:", e);
+    }
+}
+
+async function loadTrajectoryStats() {
+    const badge = document.getElementById("trajectory-episodes-count-badge");
+    try {
+        const res = await fetch("/api/trajectories/export?format=sharegpt");
+        const json = await res.json();
+        if (json && json.count != null && badge) {
+            badge.textContent = `HARVESTED EPISODES: ${json.count}`;
+        }
+    } catch (e) {
+        console.warn("loadTrajectoryStats failed:", e);
+    }
+}
+
+function initCogniGraphTabListeners() {
+    // Persona Pills
+    const pills = document.querySelectorAll("#cognigraph-persona-pills .persona-pill-btn");
+    pills.forEach(btn => {
+        btn.addEventListener("click", () => {
+            pills.forEach(p => p.classList.remove("active"));
+            btn.classList.add("active");
+            loadCogniGraphData(btn.dataset.persona);
+        });
+    });
+
+    // Refresh Memory Button
+    const refreshBtn = document.getElementById("btn-refresh-cognigraph");
+    if (refreshBtn) {
+        refreshBtn.addEventListener("click", () => {
+            loadCogniGraphData();
+            loadDreamingData();
+            loadTrajectoryStats();
+        });
+    }
+
+    // Run Dreaming Button
+    const runDreamingBtn = document.getElementById("btn-run-dreaming");
+    if (runDreamingBtn) {
+        runDreamingBtn.addEventListener("click", async () => {
+            runDreamingBtn.disabled = true;
+            runDreamingBtn.innerHTML = `<span>⏳</span><span>Consolidating Memory...</span>`;
+            try {
+                const res = await fetch("/api/dreaming/run", { method: "POST" });
+                const json = await res.json();
+                if (json.status === "success") {
+                    await loadDreamingData();
+                    await loadCogniGraphData();
+                    await loadTrajectoryStats();
+                    alert("✅ Autonomous Dreaming consolidation completed successfully!");
+                } else {
+                    alert("Dreaming consolidation failed: " + (json.message || "Unknown error"));
+                }
+            } catch (e) {
+                console.error("Dreaming error:", e);
+                alert("Network error triggering dreaming consolidation.");
+            } finally {
+                runDreamingBtn.disabled = false;
+                runDreamingBtn.innerHTML = `<span>🌙</span><span>Consolidate &amp; Dream Now</span>`;
+            }
+        });
+    }
+
+    // Trajectory Export Buttons
+    const exportSharegptBtn = document.getElementById("btn-export-sharegpt");
+    const exportAlpacaBtn = document.getElementById("btn-export-alpaca");
+    const exportDpoBtn = document.getElementById("btn-export-dpo");
+    const exportStatus = document.getElementById("trajectory-export-status");
+
+    async function triggerExport(fmt) {
+        if (exportStatus) {
+            exportStatus.style.display = "inline-block";
+            exportStatus.textContent = `Exporting ${fmt}...`;
+            exportStatus.style.color = "#a5b4fc";
+        }
+        try {
+            const res = await fetch(`/api/trajectories/export?format=${fmt}`, { method: "POST" });
+            const json = await res.json();
+            if (json.status === "ok" && exportStatus) {
+                exportStatus.textContent = `✅ Exported ${json.count || 0} ${fmt.toUpperCase()} episodes!`;
+                exportStatus.style.color = "#34d399";
+                setTimeout(() => { if (exportStatus) exportStatus.style.display = "none"; }, 4000);
+            }
+        } catch (e) {
+            if (exportStatus) {
+                exportStatus.textContent = `⚠️ Export failed`;
+                exportStatus.style.color = "#f87171";
+            }
+        }
+    }
+
+    if (exportSharegptBtn) exportSharegptBtn.addEventListener("click", () => triggerExport("sharegpt"));
+    if (exportAlpacaBtn) exportAlpacaBtn.addEventListener("click", () => triggerExport("alpaca"));
+    if (exportDpoBtn) exportDpoBtn.addEventListener("click", () => triggerExport("dpo"));
+}
+

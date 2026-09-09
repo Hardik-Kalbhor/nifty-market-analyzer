@@ -35,6 +35,14 @@ class TestExitFeaturesDeep(unittest.TestCase):
         # Verify Agent Weights sum to 1.00
         total_weight = sum(_AGENT_WEIGHTS.values())
         self.assertAlmostEqual(total_weight, 1.00, places=2, msg=f"Agent weights must sum to 1.00, got {total_weight}")
+        # Patch IST time to 11:30 AM so unit tests are immune to real-world 15:15 market close cutoffs
+        import pytz
+        from datetime import datetime
+        self.patcher = patch("exit_fast_path._get_now_ist", return_value=datetime(2026, 9, 9, 11, 30, tzinfo=pytz.timezone("Asia/Kolkata")))
+        self.patcher.start()
+
+    def tearDown(self):
+        self.patcher.stop()
 
     # ── 1. Null, Empty, and Corrupted Input Safety ──────────────────────────
     def test_fast_path_empty_and_null_inputs(self):

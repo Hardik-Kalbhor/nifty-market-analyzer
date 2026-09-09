@@ -2053,3 +2053,70 @@ body::before {
 }
 
 .inst-empty { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   🧠 COGNIGRAPH, DREAMING CONSOLE & SCALE-OUT STYLES
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+.persona-pill-btn {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary, #94a3b8);
+    transition: all 0.2s ease;
+}
+
+.persona-pill-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.persona-pill-btn.active {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(99, 102, 241, 0.5);
+    color: #e0e7ff;
+    box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+}
+
+.trap-card-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.04);
+    border: 1px solid rgba(239, 68, 68, 0.15);
+    font-size: 0.76rem;
+}
+
+.trap-card-item.positive {
+    background: rgba(34, 197, 94, 0.04);
+    border-color: rgba(34, 197, 94, 0.15);
+}
+
+.macro-axiom-card {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    font-size: 0.76rem;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.scale-out-tier-row {
+    transition: background 0.15s ease;
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+.scale-out-tier-row:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
