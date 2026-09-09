@@ -164,7 +164,7 @@ def test_feature_3_debate_engine():
         "judge_rationale": "CogniGraph risk precedents justify hedged structure.",
     }
 
-    def mock_persona_runner(name, prompt, ctx, key):
+    def mock_persona_runner(name, prompt, ctx, groq_key="", gemini_key="", *args, **kwargs):
         # Verify persona received tailored memory block
         if name == "AGGRESSIVE":
             assert "COGNIGRAPH MOMENTUM PRECEDENTS" in ctx
@@ -174,7 +174,7 @@ def test_feature_3_debate_engine():
             assert "COGNIGRAPH STRUCTURAL CONTEXT" in ctx
         return {"AGGRESSIVE": mock_agg, "CONSERVATIVE": mock_cons, "NEUTRAL": mock_neut}[name]
 
-    def mock_judge_runner(agg, cons, neut, s1, sig, key):
+    def mock_judge_runner(agg, cons, neut, s1, sig, key="", *args, **kwargs):
         from cognigraph import get_cognigraph
         cg = get_cognigraph()
         calib = cg.get_judge_calibration(sig, s1)

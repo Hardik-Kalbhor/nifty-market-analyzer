@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -85,6 +86,14 @@ class NiftyMemoryLog:
 
         logger.debug(f"NiftyMemoryLog path: {self._log_path}")
 
+        # Hermes-inspired SQLite FTS5 recall engine
+        try:
+            from memory_fts import get_memory_fts
+            self._fts = get_memory_fts(str(self._log_path.parent))
+        except Exception as fts_err:
+            logger.warning(f"Memory: NiftyMemoryFTS init warning: {fts_err}")
+            self._fts = None
+
     # ─────────────────────────────────────────────────
     # PHASE A — Store Prediction (15:15 IST)
     # ─────────────────────────────────────────────────
@@ -103,6 +112,9 @@ class NiftyMemoryLog:
         ai_provider: str | None = None,
         btst_structure: str | None = None,
         debate_consensus: str | None = None,
+        dte: int | None = None,
+        fo_expiry_context: str | None = None,
+        active_skills: list[str] | None = None,
     ) -> bool:
         """
         Phase A: Append a new 'pending' entry for today's 15:15 IST BTST prediction.
@@ -153,6 +165,43 @@ class NiftyMemoryLog:
 
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(entry)
+
+        # Hermes FTS5 index update
+        if getattr(self, "_fts", None):
+            try:
+                self._fts.upsert_entry(
+                    trade_date=trade_date,
+                    prediction=prediction,
+                    btst_bias=btst_bias,
+                    confidence=confidence,
+                    status="pending",
+                    outcome="",
+                    signals_summary=signals_line.replace("\n", " | "),
+                    reasoning=full_reasoning,
+                    vix=india_vix,
+                    gift_nifty_pct=gift_nifty_pct,
+                    fii_net=fii_net,
+                    btst_structure=btst_structure,
+                    debate_consensus=debate_consensus,
+                    ai_provider=ai_provider,
+                )
+            except Exception as fts_store_err:
+                logger.debug(f"Memory: FTS upsert in store_prediction skipped: {fts_store_err}")
+        # Hermes Skill Curator attribution
+        try:
+            from skills_engine import get_skills_engine
+            se = get_skills_engine(history_dir=str(self._log_path.parent))
+            skills_to_record = active_skills
+            if skills_to_record is None:
+                matched_skills = se.match_skills(
+                    signals={"india_vix": india_vix, "gift_nifty_change_pct": gift_nifty_pct, "dte": dte},
+                    stage1_result={"prediction": prediction, "btst_bias": btst_bias, "fo_expiry_context": fo_expiry_context}
+                )
+                skills_to_record = [s["name"] for s in matched_skills]
+            if skills_to_record:
+                se.curator.record_activations(trade_date, skills_to_record)
+        except Exception as cur_err:
+            logger.debug(f"Memory: SkillCurator record_activations skipped: {cur_err}")
 
         logger.info(f"✅ Memory Phase A: stored prediction [{trade_date}] {prediction} / {btst_bias} @ {confidence}%"
                     + (f" | Debate: {btst_structure} ({debate_consensus})" if btst_structure else ""))
@@ -280,6 +329,31 @@ class NiftyMemoryLog:
                 except Exception as cg_err:
                     logger.warning(f"CogniGraph ingestion error for {trade_date}: {cg_err}")
 
+                # Hermes FTS5 index update on resolution
+                if getattr(self, "_fts", None):
+                    try:
+                        self._fts.upsert_entry(
+                            trade_date=trade_date,
+                            prediction=entry.get("prediction", "FLAT"),
+                            btst_bias=entry.get("btst_bias", "NO TRADE"),
+                            confidence=int(entry.get("confidence") or 50),
+                            status="resolved",
+                            outcome=outcome_result,
+                            actual_gap_pct=actual_gap_pct,
+                            reflection=reflection_text,
+                            reasoning=entry.get("reasoning", ""),
+                        )
+                    except Exception as fts_res_err:
+                        logger.debug(f"Memory: FTS upsert in resolve_pending skipped: {fts_res_err}")
+
+                # Hermes Skill Curator outcome attribution
+                try:
+                    from skills_engine import get_skills_engine
+                    se = get_skills_engine(history_dir=str(self._log_path.parent))
+                    se.curator.record_outcome(trade_date, outcome_result)
+                except Exception as cur_out_err:
+                    logger.debug(f"Memory: SkillCurator record_outcome skipped: {cur_out_err}")
+
                 resolved_entry = {
                     "date": trade_date,
                     "prediction": entry["prediction"],
@@ -324,27 +398,92 @@ class NiftyMemoryLog:
             logger.warning(f"CogniGraph load_cognigraph_context failed: {e}")
             return ""
 
+    def load_fts_analogs(
+        self,
+        current_signals: dict | None = None,
+        news_items: list[dict] | None = None,
+        stage1_result: dict | None = None,
+        limit: int = 3,
+    ) -> str:
+        """
+        Hermes FTS5 Recall: Retrieve past market days sharing analogous catalysts,
+        VIX regimes, or institutional flows using BM25 search.
+        """
+        if not getattr(self, "_fts", None):
+            return ""
+        try:
+            analogs = self._fts.find_analogs(
+                signals=current_signals,
+                news_items=news_items,
+                stage1_result=stage1_result,
+                limit=limit,
+            )
+            return self._fts.format_analogs_prompt(analogs)
+        except Exception as e:
+            logger.debug(f"Memory: load_fts_analogs error: {e}")
+            return ""
+
+    def search_memories(
+        self,
+        query: str,
+        limit: int = 3,
+        outcome_filter: str | None = None,
+    ) -> list[dict]:
+        """Search historical memories using SQLite FTS5 BM25 text match."""
+        if getattr(self, "_fts", None):
+            return self._fts.search(query=query, limit=limit, outcome_filter=outcome_filter)
+        return []
+
+    def load_macro_axioms_context(self, max_axioms: int = 3) -> str:
+        """Retrieve consolidated Macro Axioms distilled by the 20:00 IST Dreaming Engine."""
+        try:
+            from dreaming_engine import get_dreaming_engine
+            engine = get_dreaming_engine(str(self._log_path.parent))
+            return engine.format_macro_axioms_prompt(max_axioms=max_axioms)
+        except Exception as e:
+            logger.debug(f"Memory: load_macro_axioms_context skipped: {e}")
+            return ""
+
     def load_past_context(
         self,
         n: int = 5,
         persona: str | None = None,
         current_signals: dict | None = None,
         stage1_result: dict | None = None,
+        news_items: list[dict] | None = None,
     ) -> str:
         """
         Phase D: Return institutional memory to inject into the LLM prompt.
-        If persona is provided, queries CogniGraph first; falls back to last N chronological entries.
+        1. If persona is provided, queries CogniGraph first.
+        2. If current_signals or news_items or stage1_result are given, queries FTS5 for analogous precedents.
+        3. Prepends top consolidated Macro Axioms if available.
+        4. Falls back to last N chronological entries.
         """
         if persona:
             cogni_ctx = self.load_cognigraph_context(persona, current_signals, stage1_result)
             if cogni_ctx:
                 return cogni_ctx
 
+        axioms_ctx = self.load_macro_axioms_context(max_axioms=3)
+
+        # Hermes FTS5 analog recall if market conditions are provided
+        if current_signals or stage1_result or news_items:
+            fts_ctx = self.load_fts_analogs(
+                current_signals=current_signals,
+                news_items=news_items,
+                stage1_result=stage1_result,
+                limit=3,
+            )
+            if fts_ctx:
+                if axioms_ctx:
+                    return f"{axioms_ctx}\n\n{fts_ctx}"
+                return fts_ctx
+
         entries = self._load_raw_entries()
         resolved = [e for e in entries if e.get("status") not in ("pending",) and e.get("outcome")]
 
         if not resolved:
-            return ""
+            return axioms_ctx
 
         # Most recent first
         recent = resolved[-n:][::-1]
@@ -362,6 +501,9 @@ class NiftyMemoryLog:
             parts.append(lesson_block)
 
         context = "\n".join(parts)
+        if axioms_ctx:
+            context = f"{axioms_ctx}\n\n{context}"
+
         logger.debug(f"Memory: Loaded {len(recent)} past lessons for context injection.")
         return context
 
@@ -371,7 +513,7 @@ class NiftyMemoryLog:
 
     def get_stats(self) -> dict:
         """
-        Return accuracy statistics for the /api/memory endpoint, including CogniGraph graph metrics.
+        Return accuracy statistics for the /api/memory endpoint, including CogniGraph graph metrics and FTS5 status.
         """
         entries = self._load_raw_entries()
         resolved = [e for e in entries if e.get("outcome")]
@@ -389,6 +531,41 @@ class NiftyMemoryLog:
         except Exception as e:
             logger.warning(f"CogniGraph stats retrieval failed: {e}")
 
+        fts_stats = {}
+        if getattr(self, "_fts", None):
+            conn = None
+            try:
+                conn = self._fts._get_connection()
+                row = conn.execute("SELECT count(*) as count FROM nifty_memories_meta;").fetchone()
+                fts_stats = {"indexed_entries": row["count"] if row else 0, "status": "active"}
+            except Exception as e:
+                fts_stats = {"status": "error", "error": str(e)}
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        curator_report = {}
+        try:
+            from skills_engine import get_skills_engine
+            se = get_skills_engine(history_dir=str(self._log_path.parent))
+            curator_report = se.curator.get_report()
+        except Exception:
+            pass
+
+        dreaming_stats = {}
+        try:
+            from dreaming_engine import get_dreaming_engine
+            de = get_dreaming_engine(str(self._log_path.parent))
+            dreaming_stats = {
+                "total_axioms": len(de._axioms),
+                "top_axioms": list(de._axioms.values())[:3],
+            }
+        except Exception:
+            pass
+
         return {
             "total_predictions": total + len(pending),
             "resolved": total,
@@ -398,6 +575,9 @@ class NiftyMemoryLog:
             "wrong": wrong,
             "accuracy_pct": round((correct / total * 100) if total > 0 else 0.0, 1),
             "cognigraph": cognigraph_stats,
+            "fts": fts_stats,
+            "skills_curator": curator_report,
+            "dreaming": dreaming_stats,
             "entries": [
                 {
                     "date": e["date"],
@@ -670,17 +850,20 @@ def build_reflect_fn_from_env() -> Callable[[str, str], str] | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Module-level singleton accessor (lazy-init, one instance per process)
+# Module-level singleton accessor (lazy-init, cached per history_dir)
 # ─────────────────────────────────────────────────────────────────────────────
-_memory_log_instance: NiftyMemoryLog | None = None
+_memory_log_instances: dict[str, NiftyMemoryLog] = {}
+_mem_instances_lock = threading.Lock()
 
 
 def get_memory_log(history_dir: str | None = None) -> NiftyMemoryLog:
-    """Return the process-level singleton NiftyMemoryLog instance."""
-    global _memory_log_instance
-    if _memory_log_instance is None:
-        _memory_log_instance = NiftyMemoryLog(history_dir)
-    return _memory_log_instance
+    """Return the cached NiftyMemoryLog instance for the specified directory."""
+    global _memory_log_instances
+    with _mem_instances_lock:
+        key = str(Path(history_dir).resolve()) if history_dir else "default"
+        if key not in _memory_log_instances:
+            _memory_log_instances[key] = NiftyMemoryLog(history_dir)
+        return _memory_log_instances[key]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

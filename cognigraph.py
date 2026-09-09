@@ -753,6 +753,83 @@ class CogniGraph:
                 regime=reg, detail=det, evidence_date=today, weight_increment=2.0
             )
 
+    def decay_and_prune(self, threshold: float = 0.2, max_idle_days: float = 60.0) -> dict[str, int]:
+        """
+        Consolidation routine: Apply time-decay to all causal edges and prune
+        edges whose decayed weight drops below threshold AND have not been seen
+        in > max_idle_days. Returns {'decayed': count, 'pruned': count}.
+        """
+        with self._lock:
+            now = _today_str()
+            pruned_keys = []
+            decayed_count = 0
+
+            for edge_key, edge in list(self._triples.items()):
+                if not isinstance(edge, dict):
+                    continue
+                last_seen = edge.get("last_seen") or now
+                decay = self._compute_decay(last_seen, now)
+                w = _safe_float(edge.get("weight"), default=1.0)
+                new_weight = round(w * decay, 4)
+                edge["weight"] = new_weight
+                decayed_count += 1
+
+                # Check pruning eligibility: must be low weight AND stale
+                idle_days = _days_between(last_seen, now)
+                if new_weight < threshold and idle_days > max_idle_days:
+                    pruned_keys.append(edge_key)
+
+            for key in pruned_keys:
+                del self._triples[key]
+
+            if decayed_count > 0:
+                self.save()
+
+            return {"decayed": decayed_count, "pruned": len(pruned_keys)}
+
+    def reinforce_from_axiom(self, axiom: dict[str, Any]) -> str | None:
+        """
+        Mint or reinforce a causal triple directly from a synthesized Macro Axiom.
+        axiom dict expects:
+          - subject: str
+          - relation: str
+          - target: str
+          - polarity: 'POSITIVE' | 'NEGATIVE'
+          - regime: str
+          - statement: str
+          - confidence: float (0.0 to 1.0)
+        """
+        if not isinstance(axiom, dict):
+            return None
+
+        sub = axiom.get("subject")
+        rel = axiom.get("relation")
+        tar = axiom.get("target")
+        if not sub or not rel or not tar:
+            return None
+
+        pol = axiom.get("polarity", "NEGATIVE").upper()
+        reg = axiom.get("regime", "")
+        stmt = axiom.get("statement", "")
+        try:
+            conf = float(axiom.get("confidence", 0.7))
+        except (ValueError, TypeError):
+            conf = 0.7
+        weight_boost = round(conf * 2.0, 2)
+
+        self.add_or_update_triple(
+            subject=sub,
+            relation=rel,
+            target=tar,
+            polarity=pol,
+            regime=reg,
+            detail=stmt[:150] if stmt else "",
+            evidence_date=_today_str(),
+            weight_increment=weight_boost,
+        )
+        self.save()
+        return f"{sub}->{rel}->{tar}"
+
     # ─────────────────────────────────────────────────────────────────────────
     # Stats & API Surface
     # ─────────────────────────────────────────────────────────────────────────

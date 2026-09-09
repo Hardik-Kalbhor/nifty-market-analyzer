@@ -616,6 +616,8 @@ def analyze_with_ai_agents(
                 market_signals=market_signals,
                 groq_key=groq_key or "",
                 gemini_key=gemini_key or "",
+                news_items=news_items,
+                heavyweights=heavyweights,
             )
         except Exception as e:
             logger.error(f"[Debate] Debate stage failed unexpectedly: {e} — returning Stage 1 result.")

@@ -237,6 +237,8 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
                     ai_provider=result.get("ai_agent_provider"),
                     btst_structure=result.get("btst_structure"),
                     debate_consensus=result.get("debate_consensus"),
+                    dte=market_signals.get("dte") if isinstance(market_signals, dict) else None,
+                    fo_expiry_context=result.get("fo_expiry_context"),
                 )
                 result["memory_stored"] = True
                 logger.info(f"  ✅ Phase A complete: [{trade_date}] {result['prediction']} / {result['btst_bias']} stored.")
@@ -271,14 +273,44 @@ def run_automated_analysis(run_name: str = "Scheduled Run"):
 
 
 
+def run_dreaming_consolidation():
+    """
+    Phase 4: Post-Market Autonomous 20:00 IST Dreaming Consolidation Cycle.
+    Synthesizes Macro Axioms, ages and rebalances CogniGraph, audits procedural
+    playbooks, and logs dream consolidation report.
+    """
+    logger.info("🌙 AutoScheduler: Initiating 20:00 IST Post-Market Dreaming Memory Consolidation...")
+    try:
+        from dreaming_engine import get_dreaming_engine
+        from memory_log import build_reflect_fn_from_env
+
+        reflect_fn = None
+        try:
+            reflect_fn = build_reflect_fn_from_env()
+        except Exception:
+            pass
+
+        engine = get_dreaming_engine(HISTORY_DIR)
+        report = engine.run_consolidation_cycle(llm_distill_fn=reflect_fn, dry_run=False)
+        logger.info(
+            f"✅ Dreaming Consolidation Complete: {report.get('episodes_processed')} episodes processed, "
+            f"{report.get('macro_axioms', {}).get('active_total')} active axioms."
+        )
+        return report
+    except Exception as e:
+        logger.error(f"❌ Dreaming Consolidation failed: {e}", exc_info=True)
+        return None
+
+
 def init_scheduler():
     """
-    Schedules 5 daily runs for Mon-Fri trading days in Asia/Kolkata (IST) timezone:
+    Schedules 6 daily runs for Mon-Fri trading days in Asia/Kolkata (IST) timezone:
     1. 08:30 IST - Pre-Market & Overnight Gap Check (BTST)
     2. 09:45 IST - Post-Open Range Settlement & ORB Intraday Bias
     3. 13:30 IST - European Market Opening & Afternoon Reversal Check
     4. 15:15 IST - Pre-Close BTST Selection Entry Check
     5. 17:30 IST - Post-Market FII/DII Official Inflow Audit
+    6. 20:00 IST - Hermes Post-Market Autonomous Dreaming Memory Consolidation
     """
     scheduler = BackgroundScheduler(timezone=TIMEZONE)
 
@@ -327,8 +359,16 @@ def init_scheduler():
         replace_existing=True,
     )
 
+    # 6. 20:00 IST (Mon-Fri) - Hermes Post-Market Autonomous Dreaming Memory Consolidation
+    scheduler.add_job(
+        run_dreaming_consolidation,
+        trigger=CronTrigger(day_of_week="mon-fri", hour=20, minute=0, timezone=TIMEZONE),
+        id="run_2000_dreaming",
+        replace_existing=True,
+    )
+
     scheduler.start()
-    logger.info("📅 AutoScheduler started! 5 Daily Trading Runs scheduled (Mon-Fri at 08:30, 09:45, 13:30, 15:15, 17:30 IST).")
+    logger.info("📅 AutoScheduler started! 6 Daily Trading Runs scheduled (Mon-Fri: 08:30, 09:45, 13:30, 15:15, 17:30, 20:00 Dreaming IST).")
     return scheduler
 
 

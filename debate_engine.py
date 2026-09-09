@@ -255,10 +255,14 @@ def _gemini_call(system_prompt: str, user_content: str, gemini_key: str, timeout
     return None
 
 
-def _run_persona(persona_name: str, system_prompt: str, context: str, groq_key: str) -> dict:
+def _run_persona(persona_name: str, system_prompt: str, context: str, groq_key: str = "", gemini_key: str = "") -> dict:
     """Run a single persona agent and return its verdict dict (with fallback)."""
     t0 = time.time()
-    result = _groq_call(system_prompt, context, groq_key)
+    result = None
+    if groq_key:
+        result = _groq_call(system_prompt, context, groq_key)
+    if not result and gemini_key:
+        result = _gemini_call(system_prompt, context, gemini_key)
     elapsed = round(time.time() - t0, 2)
 
     if result and isinstance(result, dict) and result.get("verdict") in TRADE_STRUCTURES:
@@ -266,7 +270,7 @@ def _run_persona(persona_name: str, system_prompt: str, context: str, groq_key: 
                     f"(conf={result.get('confidence')}%) in {elapsed}s")
         return result
 
-    # Fallback verdict if Groq fails or returns invalid structure
+    # Fallback verdict if LLM fails or returns invalid structure
     logger.warning(f"[Debate] {persona_name} failed or returned invalid JSON — using fallback verdict")
     return {
         "persona": persona_name,
@@ -284,6 +288,7 @@ def _run_judge(
     stage1_result: dict,
     market_signals: dict,
     gemini_key: str,
+    specialist_verdicts: list[dict] | None = None,
 ) -> dict | None:
     """Run the Gemini synthesis judge. Returns judge output dict or None."""
     cogni_calib = ""
@@ -293,6 +298,34 @@ def _run_judge(
         cogni_calib = cg.get_judge_calibration(market_signals, stage1_result)
     except Exception as cg_err:
         logger.debug(f"[Debate] CogniGraph judge calibration skipped: {cg_err}")
+
+    fts_analogs_str = ""
+    try:
+        from memory_fts import get_memory_fts
+        fts = get_memory_fts()
+        analogs = fts.find_analogs(signals=market_signals, stage1_result=stage1_result, limit=2)
+        if analogs:
+            fts_analogs_str = fts.format_analogs_prompt(analogs)
+    except Exception as fts_err:
+        logger.debug(f"[Debate] FTS judge analogs skipped: {fts_err}")
+
+    skills_prompt_str = ""
+    try:
+        from skills_engine import get_skills_engine
+        se = get_skills_engine()
+        matched_skills = se.match_skills(signals=market_signals, stage1_result=stage1_result)
+        if matched_skills:
+            skills_prompt_str = se.format_skills_prompt(matched_skills)
+    except Exception as se_err:
+        logger.debug(f"[Debate] Skills matching skipped: {se_err}")
+
+    specialists_prompt_str = ""
+    if specialist_verdicts:
+        try:
+            from dynamic_subagents import format_specialists_prompt
+            specialists_prompt_str = format_specialists_prompt(specialist_verdicts)
+        except Exception as d_err:
+            logger.debug(f"[Debate] Dynamic subagents prompt format error: {d_err}")
 
     judge_context = f"""DEBATE RESULTS:
 
@@ -312,7 +345,13 @@ ORIGINAL STAGE 1 ANALYSIS:
 
 {cogni_calib}
 
-Synthesise the 3 verdicts into a final calibrated trade structure."""
+{fts_analogs_str}
+
+{skills_prompt_str}
+
+{specialists_prompt_str}
+
+Synthesise the 3 debate committee verdicts and dynamic specialist assessments into a final calibrated trade structure."""
 
     t0 = time.time()
     result = _gemini_call(_JUDGE_SYSTEM, judge_context, gemini_key)
@@ -360,18 +399,20 @@ def _determine_consensus(aggressive: dict, conservative: dict, neutral: dict) ->
 def run_debate(
     stage1_result: dict[str, Any],
     market_signals: dict[str, Any],
-    groq_key: str,
-    gemini_key: str,
+    groq_key: str = "",
+    gemini_key: str = "",
+    news_items: list[dict[str, Any]] | None = None,
+    heavyweights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Run the 3-agent debate + synthesis judge and merge results into stage1_result.
+    Run the 3-agent debate + dynamic catalyst specialists + synthesis judge and merge results into stage1_result.
 
     Returns an enriched copy of stage1_result with these additional fields:
       btst_structure   — "FULL_BTST" | "HALF_QUANTITY" | "HEDGED_SPREAD" | "STRICT_NO_TRADE"
       trade_instruction — specific 1-2 sentence actionable trade instruction
       debate_consensus — "UNANIMOUS" | "MAJORITY" | "SPLIT"
-      debate           — { aggressive, conservative, neutral } verdicts
-      ai_agent_provider — updated to reflect debate layer
+      debate           — { aggressive, conservative, neutral, dynamic_subagents, judge_rationale }
+      ai_agent_provider — updated to reflect debate layer and active specialists
 
     On any unhandled failure, returns stage1_result UNCHANGED (safe fallback).
     Only runs when btst_bias is BUY CE or BUY PE (no point debating a confirmed NO TRADE).
@@ -381,8 +422,8 @@ def run_debate(
         logger.info("[Debate] Skipping debate — Stage 1 already resolved to NO TRADE.")
         return stage1_result
 
-    if not groq_key:
-        logger.warning("[Debate] GROQ_API_KEY not set — skipping debate.")
+    if not groq_key and not gemini_key:
+        logger.warning("[Debate] Neither GROQ_API_KEY nor GEMINI_API_KEY set — skipping debate.")
         return stage1_result
 
     logger.info(f"[Debate] Starting 3-agent debate for {btst_bias}...")
@@ -390,6 +431,45 @@ def run_debate(
 
     # Build shared base context
     context = _build_debate_context(stage1_result, market_signals)
+
+    # Hermes FTS5 historical analog recall
+    try:
+        from memory_fts import get_memory_fts
+        fts = get_memory_fts()
+        analogs = fts.find_analogs(signals=market_signals, stage1_result=stage1_result, limit=2)
+        if analogs:
+            fts_analogs_str = fts.format_analogs_prompt(analogs)
+            if fts_analogs_str:
+                context = f"{context}\n\n{fts_analogs_str}"
+    except Exception as fts_err:
+        logger.debug(f"[Debate] FTS analog retrieval skipped: {fts_err}")
+
+    # Hermes AgentSkills procedural playbooks
+    try:
+        from skills_engine import get_skills_engine
+        se = get_skills_engine()
+        matched_skills = se.match_skills(signals=market_signals, stage1_result=stage1_result)
+        if matched_skills:
+            skills_prompt_str = se.format_skills_prompt(matched_skills)
+            if skills_prompt_str:
+                context = f"{context}\n\n{skills_prompt_str}"
+    except Exception as se_err:
+        logger.debug(f"[Debate] Skills matching skipped in run_debate: {se_err}")
+
+    # Dynamic Catalyst Specialists (Hermes-inspired adaptive task delegation)
+    specialist_names: list[str] = []
+    try:
+        from dynamic_subagents import match_dynamic_subagents, evaluate_dynamic_subagents
+        specialist_names = match_dynamic_subagents(
+            market_signals=market_signals,
+            news_items=news_items or [],
+            stage1_result=stage1_result,
+            heavyweights=heavyweights,
+        )
+        if specialist_names:
+            logger.info(f"[Debate] Spawning dynamic specialist subagents: {specialist_names}")
+    except Exception as match_err:
+        logger.debug(f"[Debate] Dynamic subagent matching skipped: {match_err}")
 
     # Fetch persona-conditioned CogniGraph memory
     agg_context = context
@@ -410,28 +490,53 @@ def run_debate(
     except Exception as cg_err:
         logger.warning(f"[Debate] CogniGraph memory retrieval error: {cg_err}")
 
-    # ── Stage 2a: 3 Groq agents in PARALLEL ────────────────────────────────
+    # ── Stage 2a: 3 agents + dynamic specialists in PARALLEL ────────────────
+    specialist_verdicts: list[dict[str, Any]] = []
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            fut_agg  = executor.submit(_run_persona, "AGGRESSIVE",  _AGGRESSIVE_SYSTEM,  agg_context, groq_key)
-            fut_cons = executor.submit(_run_persona, "CONSERVATIVE", _CONSERVATIVE_SYSTEM, cons_context, groq_key)
-            fut_neut = executor.submit(_run_persona, "NEUTRAL",      _NEUTRAL_SYSTEM,      neut_context, groq_key)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            fut_agg  = executor.submit(_run_persona, "AGGRESSIVE",  _AGGRESSIVE_SYSTEM,  agg_context, groq_key, gemini_key)
+            fut_cons = executor.submit(_run_persona, "CONSERVATIVE", _CONSERVATIVE_SYSTEM, cons_context, groq_key, gemini_key)
+            fut_neut = executor.submit(_run_persona, "NEUTRAL",      _NEUTRAL_SYSTEM,      neut_context, groq_key, gemini_key)
+            fut_spec = None
+            if specialist_names:
+                fut_spec = executor.submit(
+                    evaluate_dynamic_subagents,
+                    specialist_names,
+                    market_signals,
+                    news_items or [],
+                    stage1_result,
+                    gemini_key,
+                    groq_key,
+                )
 
             aggressive  = fut_agg.result(timeout=12)
             conservative = fut_cons.result(timeout=12)
             neutral     = fut_neut.result(timeout=12)
+            if fut_spec:
+                try:
+                    specialist_verdicts = fut_spec.result(timeout=10) or []
+                except Exception as s_err:
+                    logger.warning(f"[Debate] Specialist execution error: {s_err}")
     except Exception as e:
         logger.error(f"[Debate] Parallel agent execution failed: {e} — returning Stage 1 unchanged.")
         return stage1_result
 
     t_debate = round(time.time() - t_start, 2)
-    logger.info(f"[Debate] 3 agents completed in {t_debate}s")
+    logger.info(f"[Debate] Agents & specialists completed in {t_debate}s")
 
     # ── Stage 2b: Gemini synthesis judge ───────────────────────────────────
     judge_result = None
     if gemini_key:
         try:
-            judge_result = _run_judge(aggressive, conservative, neutral, stage1_result, market_signals, gemini_key)
+            judge_result = _run_judge(
+                aggressive,
+                conservative,
+                neutral,
+                stage1_result,
+                market_signals,
+                gemini_key,
+                specialist_verdicts=specialist_verdicts,
+            )
         except Exception as e:
             logger.warning(f"[Debate] Judge failed: {e} — using vote-based fallback.")
 
@@ -480,11 +585,14 @@ def run_debate(
                 "confidence": neutral.get("confidence"),
                 "rationale":  neutral.get("rationale"),
             },
+            "dynamic_subagents": specialist_verdicts,
             "judge_rationale": judge_rationale,
         },
         "ai_agent_provider": (
             enriched.get("ai_agent_provider", "Groq")
-            + " → Debate (3×Groq + Gemini Judge)"
+            + " → Debate (3×Committee + Gemini Judge"
+            + (f" + {len(specialist_verdicts)} Specialists" if specialist_verdicts else "")
+            + ")"
         ),
     })
 

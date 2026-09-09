@@ -319,6 +319,55 @@ def trigger_schedule():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/dreaming/status", methods=["GET"])
+def get_dreaming_status():
+    """Return latest post-market dreaming consolidation report and macro axioms."""
+    try:
+        from pathlib import Path
+        from dreaming_engine import get_dreaming_engine
+        history_dir = get_history_dir()
+        engine = get_dreaming_engine(history_dir)
+        report_path = Path(history_dir) / "dream_report.json"
+        latest_report = {}
+        if report_path.exists():
+            try:
+                with open(report_path, "r", encoding="utf-8") as f:
+                    latest_report = json.load(f)
+            except Exception:
+                pass
+
+        return jsonify({
+            "status": "ok",
+            "data": {
+                "total_axioms": len(engine._axioms),
+                "macro_axioms": list(engine._axioms.values()),
+                "latest_report": latest_report,
+                "prompt_preview": engine.format_macro_axioms_prompt(max_axioms=3),
+            }
+        })
+    except Exception as e:
+        logger.error(f"/api/dreaming/status failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/dreaming/run", methods=["POST", "GET"])
+def trigger_dreaming():
+    """Trigger the 20:00 IST dreaming consolidation loop on demand."""
+    try:
+        from auto_scheduler import run_dreaming_consolidation
+        report = run_dreaming_consolidation()
+        if report:
+            return jsonify({
+                "status": "success",
+                "message": "Dreaming consolidation completed successfully!",
+                "data": report
+            })
+        return jsonify({"status": "error", "message": "Dreaming consolidation returned no report"}), 500
+    except Exception as e:
+        logger.error(f"Manual dreaming trigger failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 def get_history_dir():
     base_dir = os.path.join(os.path.dirname(__file__), "history")
     try:
@@ -328,6 +377,46 @@ def get_history_dir():
         tmp_dir = "/tmp/history"
         os.makedirs(tmp_dir, exist_ok=True)
         return tmp_dir
+
+
+@app.route("/api/trajectories/export", methods=["GET", "POST"])
+def export_trajectories():
+    """
+    Export trade reasoning trajectories for fine-tuning open-source LLMs.
+    Supported formats: 'sharegpt', 'dpo', 'alpaca', or 'all' (default).
+    """
+    try:
+        from trajectory_exporter import get_trajectory_exporter
+        history_dir = get_history_dir()
+        exporter = get_trajectory_exporter(history_dir)
+
+        if request.method == "GET":
+            fmt = request.args.get("format", "all").lower()
+            inc_pend = request.args.get("include_pending", "0").lower() in ("1", "true", "yes")
+        else:
+            body = request.get_json(silent=True) or {}
+            fmt = body.get("format", "all").lower()
+            inc_pend = bool(body.get("include_pending", False))
+
+        if fmt == "sharegpt":
+            data = exporter.export_sharegpt(exporter.collect_trajectories(include_pending=inc_pend))
+            return jsonify({"status": "ok", "format": "sharegpt", "count": len(data), "data": data})
+        elif fmt == "dpo":
+            data = exporter.export_dpo(exporter.collect_trajectories(include_pending=inc_pend))
+            return jsonify({"status": "ok", "format": "dpo", "count": len(data), "data": data})
+        elif fmt == "alpaca":
+            data = exporter.export_alpaca(exporter.collect_trajectories(include_pending=inc_pend))
+            return jsonify({"status": "ok", "format": "alpaca", "count": len(data), "data": data})
+        else:
+            export_summary = exporter.export_all(include_pending=inc_pend)
+            return jsonify({
+                "status": "ok",
+                "message": "Trajectories exported successfully to JSONL files!",
+                "data": export_summary,
+            })
+    except Exception as e:
+        logger.error(f"/api/trajectories/export failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/institutional-radar", methods=["GET"])
