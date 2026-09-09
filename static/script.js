@@ -2860,37 +2860,78 @@ function initCogniGraphTabListeners() {
         });
     }
 
-    // Trajectory Export Buttons
+    // Trajectory Export & Local JSONL Download
+    const downloadJsonlBtn = document.getElementById("btn-download-jsonl");
+    const formatSelect = document.getElementById("trajectory-format-select");
     const exportSharegptBtn = document.getElementById("btn-export-sharegpt");
     const exportAlpacaBtn = document.getElementById("btn-export-alpaca");
     const exportDpoBtn = document.getElementById("btn-export-dpo");
     const exportStatus = document.getElementById("trajectory-export-status");
 
-    async function triggerExport(fmt) {
+    function downloadAsLocalFile(content, filename, mimeType = "application/x-jsonlines") {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    async function triggerExport(fmt, downloadLocal = true) {
         if (exportStatus) {
             exportStatus.style.display = "inline-block";
-            exportStatus.textContent = `Exporting ${fmt}...`;
+            exportStatus.textContent = `Processing ${fmt.toUpperCase()} JSONL...`;
             exportStatus.style.color = "#a5b4fc";
         }
         try {
+            if (fmt === "all") {
+                const res = await fetch(`/api/trajectories/export?format=all`, { method: "POST" });
+                const json = await res.json();
+                if (json.status === "ok" && exportStatus) {
+                    exportStatus.textContent = `✅ Saved all 3 formats to server disk! Initiating download...`;
+                    exportStatus.style.color = "#34d399";
+                }
+                window.location.href = `/api/trajectories/export?format=sharegpt&download=1`;
+                setTimeout(() => { if (exportStatus) exportStatus.style.display = "none"; }, 5000);
+                return;
+            }
+
             const res = await fetch(`/api/trajectories/export?format=${fmt}`, { method: "POST" });
             const json = await res.json();
-            if (json.status === "ok" && exportStatus) {
-                exportStatus.textContent = `✅ Exported ${json.count || 0} ${fmt.toUpperCase()} episodes!`;
-                exportStatus.style.color = "#34d399";
-                setTimeout(() => { if (exportStatus) exportStatus.style.display = "none"; }, 4000);
+            if (json.status === "ok") {
+                const records = json.data || [];
+                if (downloadLocal && records.length > 0) {
+                    const jsonlLines = records.map(r => JSON.stringify(r)).join("\n") + "\n";
+                    downloadAsLocalFile(jsonlLines, `nifty_trajectories_${fmt}.jsonl`);
+                }
+                if (exportStatus) {
+                    exportStatus.textContent = `✅ Saved & downloaded ${json.count || records.length} ${fmt.toUpperCase()} episodes (.jsonl)!`;
+                    exportStatus.style.color = "#34d399";
+                    setTimeout(() => { if (exportStatus) exportStatus.style.display = "none"; }, 4500);
+                }
+            } else {
+                throw new Error(json.message || "Export returned non-ok status");
             }
         } catch (e) {
             if (exportStatus) {
-                exportStatus.textContent = `⚠️ Export failed`;
+                exportStatus.textContent = `⚠️ Export failed: ${e.message || e}`;
                 exportStatus.style.color = "#f87171";
             }
         }
     }
 
-    if (exportSharegptBtn) exportSharegptBtn.addEventListener("click", () => triggerExport("sharegpt"));
-    if (exportAlpacaBtn) exportAlpacaBtn.addEventListener("click", () => triggerExport("alpaca"));
-    if (exportDpoBtn) exportDpoBtn.addEventListener("click", () => triggerExport("dpo"));
+    if (downloadJsonlBtn) {
+        downloadJsonlBtn.addEventListener("click", () => {
+            const chosenFmt = formatSelect ? formatSelect.value : "sharegpt";
+            triggerExport(chosenFmt, true);
+        });
+    }
+    if (exportSharegptBtn) exportSharegptBtn.addEventListener("click", () => triggerExport("sharegpt", true));
+    if (exportAlpacaBtn) exportAlpacaBtn.addEventListener("click", () => triggerExport("alpaca", true));
+    if (exportDpoBtn) exportDpoBtn.addEventListener("click", () => triggerExport("dpo", true));
 }
 
 
