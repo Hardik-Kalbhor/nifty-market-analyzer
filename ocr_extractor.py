@@ -70,7 +70,13 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
             
             if len(raw_text.strip()) > 20:
                 result = _parse_ocr_text_with_groq(raw_text, has_red_badge, has_green_badge)
-                if result and result.get("strike"):
+                if not result or not result.get("strike"):
+                    result = _parse_ocr_text_deterministic(raw_text, has_red_badge, has_green_badge)
+                    if result and result.get("strike"):
+                        result["extraction_engine"] = "Pytesseract OCR + Regex Fallback"
+                        result["latency_sec"] = round(time.time() - t0, 2)
+                        return {"status": "success", "data": result}
+                else:
                     result["extraction_engine"] = "Pytesseract OCR + Groq LLM"
                     result["latency_sec"] = round(time.time() - t0, 2)
                     return {"status": "success", "data": result}
@@ -83,14 +89,75 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
     }
 
 
+def _parse_ocr_text_deterministic(ocr_text: str, has_red_badge: bool = False, has_green_badge: bool = False) -> Optional[dict[str, Any]]:
+    """Deterministic regex-based OCR parser when Groq LLM is unavailable/offline."""
+    if not ocr_text or not isinstance(ocr_text, str):
+        return None
+
+    # 1. Extract strike (e.g. 24500 CE, 24100 PE, 24000 CALL, 24000 PUT)
+    m_strike = re.search(r"\b(\d{5})\s*(CE|PE|CALL|PUT)\b", ocr_text, re.IGNORECASE)
+    if not m_strike:
+        m_strike = re.search(r"\b(\d{5})(CE|PE|CALL|PUT)\b", ocr_text, re.IGNORECASE)
+    if not m_strike:
+        return None
+
+    strike_num = m_strike.group(1)
+    call_put = m_strike.group(2).upper().replace("CALL", "CE").replace("PUT", "PE")
+    strike_str = f"{strike_num} {call_put}"
+
+    # 2. Extract direction / side
+    has_sell = has_red_badge or bool(re.search(r"\b(SELL|SHORT|S)\b", ocr_text, re.IGNORECASE)) or bool(re.search(r"-\d{2,4}", ocr_text))
+    if has_sell:
+        side = "SHORT_CE" if call_put == "CE" else "SHORT_PE"
+    else:
+        side = "BUY_CE" if call_put == "CE" else "BUY_PE"
+
+    # 3. Trade type
+    if re.search(r"\b(NRML|NORMAL|DELIVERY|CARRYFORWARD|BTST)\b", ocr_text, re.IGNORECASE):
+        trade_type = "BTST"
+    else:
+        trade_type = "INTRADAY"
+
+    # 4. Entry & Current Premiums
+    m_avg = re.search(r"(?:Avg\s*Price|Type\s*Avg|Avg|Entry)[\s\:\=]*(\d{2,4}(?:\.\d{1,2})?)", ocr_text, re.IGNORECASE)
+    m_ltp = re.search(r"(?:Live|LTP|CMP)[\:\|\s]*(\d{2,4}(?:\.\d{1,2})?)", ocr_text, re.IGNORECASE)
+
+    all_floats = [float(x) for x in re.findall(r"\b\d{2,4}\.\d{1,2}\b", ocr_text) if float(x) != float(strike_num)]
+
+    entry_prem = float(m_avg.group(1)) if m_avg else (all_floats[0] if len(all_floats) > 0 else 100.0)
+    curr_prem = float(m_ltp.group(1)) if m_ltp else (all_floats[1] if len(all_floats) > 1 else entry_prem)
+
+    # 5. Quantity
+    m_qty = re.search(r"(?:QTY|Quantity)[\s\:\=]*(\d{1,4})", ocr_text, re.IGNORECASE)
+    qty = int(m_qty.group(1)) if m_qty else 50
+
+    return {
+        "strike": strike_str,
+        "position_side": side,
+        "trade_type": trade_type,
+        "entry_premium": entry_prem,
+        "current_premium": curr_prem,
+        "entry_spot": None,
+        "quantity": qty,
+        "broker_detected": "Universal Regex Broker Parser"
+    }
+
+
 def parse_ocr_raw_text(raw_text: str, has_red_badge: bool = False, has_green_badge: bool = False) -> dict[str, Any]:
     """Parses raw OCR text received directly from client-side or server OCR."""
     t0 = time.time()
     result = _parse_ocr_text_with_groq(raw_text, has_red_badge, has_green_badge)
-    if result and result.get("strike"):
+    if not result or not result.get("strike"):
+        result = _parse_ocr_text_deterministic(raw_text, has_red_badge, has_green_badge)
+        if result and result.get("strike"):
+            result["extraction_engine"] = "Deterministic Regex OCR Parser"
+            result["latency_sec"] = round(time.time() - t0, 2)
+            return {"status": "success", "data": result}
+    else:
         result["extraction_engine"] = "Groq LLM OCR Parser"
         result["latency_sec"] = round(time.time() - t0, 2)
         return {"status": "success", "data": result}
+
     return {
         "status": "error",
         "message": "Could not identify active option contract from text. Please verify screenshot clarity."

@@ -58,6 +58,9 @@ def _classify_gap(bias: str, text: str) -> str:
         return "Positive"
     if bias == "BEARISH":
         return "Negative"
+    return "Flat"
+
+
 def _clean_text(html_or_text: str) -> str:
     """Strip HTML tags and excess whitespace from RSS summary/title."""
     if not html_or_text:

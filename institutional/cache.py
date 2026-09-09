@@ -21,6 +21,16 @@ def save_institutional_radar_cache(data: dict, history_dir: str) -> None:
     try:
         os.makedirs(history_dir, exist_ok=True)
         path = get_cache_path(history_dir)
+        # If new data has 0 provider calls, don't overwrite existing valid cache
+        if not data.get("provider_calls") and os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as existing_f:
+                    existing_data = json.load(existing_f)
+                if existing_data.get("provider_calls"):
+                    logger.info("Preserving existing institutional cache with valid provider calls")
+                    return
+            except Exception:
+                pass
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         logger.info(f"💾 Institutional Radar cached → {path}")
@@ -62,14 +72,56 @@ def get_cached_institutional_radar(
     if not force_refresh:
         cached = load_institutional_radar_cache(history_dir)
         if cached:
-            # Patch live spot into cached result if provided
+            # If cached has provider calls or there is no latest.json fallback
+            latest_path = os.path.join(history_dir, "latest.json")
+            if cached.get("provider_calls") or not os.path.exists(latest_path):
+                if nifty_spot:
+                    cached = _patch_spot_derived_fields(cached, nifty_spot)
+                return cached
+            # If cached has 0 provider calls, check if latest.json has calls
+            try:
+                with open(latest_path, "r", encoding="utf-8") as f:
+                    ldata = json.load(f)
+                if ldata.get("institutional_radar") and ldata["institutional_radar"].get("provider_calls"):
+                    fallback = ldata["institutional_radar"]
+                    if nifty_spot:
+                        fallback = _patch_spot_derived_fields(fallback, nifty_spot)
+                    return fallback
+            except Exception:
+                pass
             if nifty_spot:
                 cached = _patch_spot_derived_fields(cached, nifty_spot)
             return cached
 
-    data = fetch_institutional_radar(nifty_spot=nifty_spot)
-    save_institutional_radar_cache(data, history_dir)
-    return data
+    data = None
+    try:
+        data = fetch_institutional_radar(nifty_spot=nifty_spot)
+    except Exception as e:
+        logger.warning(f"fetch_institutional_radar failed: {e}")
+
+    if data and data.get("provider_calls"):
+        save_institutional_radar_cache(data, history_dir)
+        return data
+
+    # Fallback to latest.json if available
+    latest_path = os.path.join(history_dir, "latest.json")
+    if os.path.exists(latest_path):
+        try:
+            with open(latest_path, "r", encoding="utf-8") as f:
+                ldata = json.load(f)
+            if ldata.get("institutional_radar") and ldata["institutional_radar"].get("provider_calls"):
+                fallback = ldata["institutional_radar"]
+                if nifty_spot:
+                    fallback = _patch_spot_derived_fields(fallback, nifty_spot)
+                return fallback
+        except Exception:
+            pass
+
+    if data:
+        save_institutional_radar_cache(data, history_dir)
+        return data
+
+    return {}
 
 
 def _patch_spot_derived_fields(radar: dict, nifty_spot: float) -> dict:

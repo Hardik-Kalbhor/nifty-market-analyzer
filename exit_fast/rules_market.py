@@ -27,8 +27,8 @@ def evaluate_market_rules(
     side = str(position.get("position_side", "BUY_CE")).upper()
     entry_spot = _safe_float(position.get("entry_spot"), 0.0)
     current_spot = _safe_float(live_signals.get("nifty_spot"), 0.0)
-    entry_premium = _safe_float(position.get("entry_premium"), 0.0)
-    current_premium = _safe_float(position.get("current_premium"), 0.0)
+    entry_premium = _safe_float(position.get("entry_premium") or position.get("entry_price") or position.get("buy_price") or position.get("avg_price"), 0.0)
+    current_premium = _safe_float(position.get("current_premium") or position.get("current_ltp") or position.get("current_price") or position.get("ltp"), 0.0)
     # 5. Expiry Day Theta Profit Lock (Tuesday only — short sellers)
     # On expiry day, theta collapses dramatically in the last 2 hours.
     # If a short option seller is already at +40%+ profit, lock it before whipsaw.

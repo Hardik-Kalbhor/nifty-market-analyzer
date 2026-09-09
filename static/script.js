@@ -66,12 +66,10 @@ function switchTab(tab) {
 
     if (tab === "history") {
         loadHistoryList();
+    } else if (tab === "btst") {
+        fetchAndRenderInstitutionalRadar();
     } else if (tab === "exit-advisor") {
-        const entrySpotInput = document.getElementById("entry-spot");
-        if (entrySpotInput && !entrySpotInput.value) {
-            const presetBtn = document.getElementById("btn-preset-btst");
-            if (presetBtn) presetBtn.click();
-        }
+        // Pristine form for live user input
     } else if (tab === "cognigraph") {
         loadCogniGraphData();
         loadDreamingData();
@@ -1048,7 +1046,7 @@ function renderIntradayDebateCommittee(debate) {
     if (!section || !grid) return;
 
     if (!debate || typeof debate !== "object" || !debate.momentum_scalper) {
-        section.style.display = "block";
+        section.style.display = "none";
         return;
     }
 
@@ -2134,6 +2132,12 @@ function renderExitDebateCommittee(debate, consensus, data) {
     const fullJudgeAction = document.getElementById("exit-full-judge-action");
     const fullJudgeRationale = document.getElementById("exit-full-judge-rationale");
 
+    if (!debate || typeof debate !== "object") {
+        if (fullSection) fullSection.style.display = "none";
+        if (section) section.style.display = "none";
+        return;
+    }
+
     if (fullSection) fullSection.style.display = "block";
     if (section) section.style.display = "block";
 
@@ -2416,6 +2420,7 @@ async function autoLoadLatestAnalysis() {
 document.addEventListener("DOMContentLoaded", () => {
     initExitAdvisor();
     autoLoadLatestAnalysis();
+    fetchAndRenderInstitutionalRadar();
     initCogniGraphTabListeners();
     initWalkForwardSimulationListeners();
 
@@ -2497,46 +2502,75 @@ function renderInstitutionalRadar(data) {
     const section = document.getElementById("institutional-radar-section");
     if (!section) return;
 
-    // Always show the section (even if empty to display skeleton)
+    // Always show the section
     section.style.display = "";
 
-    if (!radar || Object.keys(radar).length === 0) {
-        // Show awaiting cache state
-        document.getElementById("inst-matrix-body").innerHTML =
-            `<tr><td colspan="6" class="inst-empty">
-                ⏰ Awaiting first scheduled run (08:30 / 15:15 / 17:30 IST).<br>
-                <small>Institutional predictions are refreshed automatically — no data during market hours before first run.</small>
-            </td></tr>`;
-        document.getElementById("inst-brokerage-body").innerHTML =
-            `<tr><td colspan="5" class="inst-empty">No brokerage calls cached yet.</td></tr>`;
-        return;
-    }
-
-    // ─── Tab Switcher Wiring ───────────────────────────────────────────────
+    // ─── Tab Switcher Wiring (Unconditional) ───────────────────────────────
     const tabBtns = document.querySelectorAll(".inst-tab-btn");
     tabBtns.forEach(btn => {
         btn.onclick = () => {
             tabBtns.forEach(b => b.classList.remove("active"));
             btn.classList.add("active");
             const tab = btn.dataset.tab;
-            document.getElementById("inst-panel-matrix").style.display   = tab === "matrix"   ? "" : "none";
-            document.getElementById("inst-panel-brokerage").style.display = tab === "brokerage" ? "" : "none";
+            const matrixPanel = document.getElementById("inst-panel-matrix");
+            const brokeragePanel = document.getElementById("inst-panel-brokerage");
+            if (matrixPanel) matrixPanel.style.display = tab === "matrix" ? "" : "none";
+            if (brokeragePanel) brokeragePanel.style.display = tab === "brokerage" ? "" : "none";
         };
     });
 
-    // ─── Consensus Badge ──────────────────────────────────────────────────
-    const consensusBias = radar.consensus_bias || "RANGEBOUND";
-    const bullPct = radar.bull_pct || 0;
     const badge = document.getElementById("inst-consensus-badge");
+
+    if (!radar || Object.keys(radar).length === 0) {
+        if (badge) {
+            badge.style.background = "rgba(100,100,100,0.2)";
+            badge.style.color = "var(--text-muted)";
+            badge.textContent = "⏰ Awaiting Cache";
+        }
+        // Show awaiting cache state
+        const matrixBody = document.getElementById("inst-matrix-body");
+        if (matrixBody) {
+            matrixBody.innerHTML =
+                `<tr><td colspan="6" class="inst-empty">
+                    ⏰ Awaiting first scheduled run (08:30 / 15:15 / 17:30 IST).<br>
+                    <small>Institutional predictions are refreshed automatically — no data during market hours before first run.</small>
+                </td></tr>`;
+        }
+        const brokerageBody = document.getElementById("inst-brokerage-body");
+        if (brokerageBody) {
+            brokerageBody.innerHTML =
+                `<tr><td colspan="5" class="inst-empty">No brokerage calls cached yet.</td></tr>`;
+        }
+        if (!_instRadarFetching) {
+            fetchAndRenderInstitutionalRadar();
+        }
+        return;
+    }
+
+    const providerCalls = radar.provider_calls || {};
+    const consensus = radar.consensus || {};
+    const niftySpot = radar.nifty_spot;
+    const hasProviders = Object.keys(providerCalls).length > 0;
+    const hasBrokerage = Array.isArray(radar.brokerage_calls) && radar.brokerage_calls.length > 0;
+
+    // ─── Consensus Badge ──────────────────────────────────────────────────
     if (badge) {
-        const b = consensusBias.toUpperCase();
-        let bg = "rgba(251,191,36,0.15)";
-        let color = "#fde68a";
-        if (b.includes("BULL")) { bg = "rgba(34,197,94,0.15)"; color = "#86efac"; }
-        if (b.includes("BEAR")) { bg = "rgba(239,68,68,0.15)";  color = "#fca5a5"; }
-        badge.style.background = bg;
-        badge.style.color = color;
-        badge.textContent = `${bullPct}% Bullish · ${consensusBias}`;
+        if (!hasProviders && !hasBrokerage) {
+            badge.style.background = "rgba(100,100,100,0.2)";
+            badge.style.color = "var(--text-muted)";
+            badge.textContent = "⏰ Awaiting Run";
+        } else {
+            const consensusBias = radar.consensus_bias || consensus.next_day_bias || "RANGEBOUND";
+            const bullPct = radar.bull_pct != null ? radar.bull_pct : (consensus.bull_pct || 0);
+            const b = consensusBias.toUpperCase();
+            let bg = "rgba(251,191,36,0.15)";
+            let color = "#fde68a";
+            if (b.includes("BULL")) { bg = "rgba(34,197,94,0.15)"; color = "#86efac"; }
+            if (b.includes("BEAR")) { bg = "rgba(239,68,68,0.15)"; color = "#fca5a5"; }
+            badge.style.background = bg;
+            badge.style.color = color;
+            badge.textContent = `${bullPct}% Bullish · ${consensusBias}`;
+        }
     }
 
     // ─── Timestamp ────────────────────────────────────────────────────────
@@ -2653,16 +2687,35 @@ function renderInstitutionalRadar(data) {
     }
 }
 
+let _instRadarFetching = false;
+
 // Also expose a standalone fetch for the /api/institutional-radar endpoint
 async function fetchAndRenderInstitutionalRadar() {
+    if (_instRadarFetching) return;
+    _instRadarFetching = true;
     try {
         const res = await fetch("/api/institutional-radar");
         const json = await res.json();
-        if (json && json.data) {
+        if (json && json.data && Object.keys(json.data).length > 0) {
             renderInstitutionalRadar({ institutional_radar: json.data });
+        } else {
+            const badge = document.getElementById("inst-consensus-badge");
+            if (badge && badge.textContent === "Loading...") {
+                badge.style.background = "rgba(100,100,100,0.2)";
+                badge.style.color = "var(--text-muted)";
+                badge.textContent = "⏰ Awaiting Cache";
+            }
         }
     } catch (e) {
         console.warn("Institutional radar fetch failed:", e);
+        const badge = document.getElementById("inst-consensus-badge");
+        if (badge && badge.textContent === "Loading...") {
+            badge.style.background = "rgba(100,100,100,0.2)";
+            badge.style.color = "var(--text-muted)";
+            badge.textContent = "⏰ Standby";
+        }
+    } finally {
+        _instRadarFetching = false;
     }
 }
 

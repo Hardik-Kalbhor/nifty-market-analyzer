@@ -2,8 +2,11 @@ services:
   - type: web
     name: nifty-news-analyzer
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --worker-class gthread --timeout 180
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.8"
+      - key: FLASK_DEBUG
+        value: "false"

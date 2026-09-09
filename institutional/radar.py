@@ -2,6 +2,7 @@
 institutional/radar.py — Confluence matrix synthesis and main fetch_institutional_radar orchestrator.
 """
 
+import time
 import logging
 import concurrent.futures
 from datetime import datetime

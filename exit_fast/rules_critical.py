@@ -20,8 +20,8 @@ def evaluate_critical_rules(
     current_spot = _safe_float(live_signals.get("nifty_spot"), 0.0)
     vix_change_pct = _safe_float(live_signals.get("india_vix_change_pct"), 0.0)
     
-    entry_premium = _safe_float(position.get("entry_premium"), 0.0)
-    current_premium = _safe_float(position.get("current_premium"), 0.0)
+    entry_premium = _safe_float(position.get("entry_premium") or position.get("entry_price") or position.get("buy_price") or position.get("avg_price"), 0.0)
+    current_premium = _safe_float(position.get("current_premium") or position.get("current_ltp") or position.get("current_price") or position.get("ltp"), 0.0)
 
     # 1. 15:15 IST Mandatory Pre-Close Square-Off for Intraday Trades
     if trade_type == "INTRADAY":

@@ -104,10 +104,10 @@
             <section class="prediction-hero animate-in" id="prediction-hero">
 
                 <!-- Prediction Card -->
-                <div class="card prediction-card gap-up" id="prediction-card">
+                <div class="card prediction-card" id="prediction-card">
                     <div class="prediction-label">Next Day NIFTY Opening</div>
-                    <div class="prediction-value gap-up" id="prediction-value">GAP UP</div>
-                    <div class="prediction-subtitle" id="prediction-sentiment">🟢 Sentiment: BULLISH</div>
+                    <div class="prediction-value" id="prediction-value">--</div>
+                    <div class="prediction-subtitle" id="prediction-sentiment">⚪ Awaiting Analysis</div>
                 </div>
 
                 <!-- Confidence Gauge -->
@@ -129,11 +129,11 @@
                 <!-- BTST Bias Card -->
                 <div class="card btst-card">
                     <div class="btst-label">BTST Trading Bias</div>
-                    <div class="btst-badge buy-ce" id="btst-badge">
-                        <span id="btst-icon">📈</span>
-                        <span>BUY CE</span>
+                    <div class="btst-badge neutral" id="btst-badge">
+                        <span id="btst-icon">⏳</span>
+                        <span>--</span>
                     </div>
-                    <div class="btst-subtext">Based on news sentiment analysis</div>
+                    <div class="btst-subtext">Based on market & sentiment analysis</div>
                 </div>
 
             </section>
@@ -335,11 +335,11 @@
                         <span>3-Analyst BTST Risk Debate Committee</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <span id="btst-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">
-                            HALF QUANTITY
+                        <span id="btst-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
-                        <span id="btst-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
-                            MAJORITY
+                        <span id="btst-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
                     </div>
                 </div>
@@ -350,11 +350,11 @@
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🚀 Aggressive Analyst</span>
-                            <span id="btst-verdict-aggressive" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid #4ade8044;font-weight:700;">FULL BTST</span>
+                            <span id="btst-verdict-aggressive" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="btst-meta-aggressive" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Momentum &amp; Overnight Gap · 80% Conf</div>
+                        <div id="btst-meta-aggressive" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Momentum &amp; Overnight Gap</div>
                         <div id="btst-rationale-aggressive" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Overnight gap catalysts, global market momentum, and institutional buying flow support carrying a directional overnight position.
+                            Awaiting momentum &amp; gap catalysts analysis...
                         </div>
                     </div>
 
@@ -362,11 +362,11 @@
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🛡️ Conservative Guardian</span>
-                            <span id="btst-verdict-conservative" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid #fbbf2444;font-weight:700;">HALF QUANTITY</span>
+                            <span id="btst-verdict-conservative" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="btst-meta-conservative" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Theta Decay &amp; DTE Defense · 75% Conf</div>
+                        <div id="btst-meta-conservative" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Theta Decay &amp; DTE Defense</div>
                         <div id="btst-rationale-conservative" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Weighs overnight theta erosion, proximity to Tuesday expiry, and Max Pain pinning, recommending reduced lot sizing or spreads.
+                            Awaiting theta erosion &amp; risk defense analysis...
                         </div>
                     </div>
 
@@ -374,30 +374,30 @@
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">⚖️ Neutral Risk Arbiter</span>
-                            <span id="btst-verdict-neutral" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);font-weight:700;">HEDGED SPREAD</span>
+                            <span id="btst-verdict-neutral" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="btst-meta-neutral" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Trade Structuring &amp; R:R · 70% Conf</div>
+                        <div id="btst-meta-neutral" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Trade Structuring &amp; R:R</div>
                         <div id="btst-rationale-neutral" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Calculates asymmetric risk-to-reward ratio and advises on optimal overnight capital allocation and lot sizing.
+                            Awaiting asymmetric R:R risk structuring...
                         </div>
                     </div>
                 </div>
 
                 <!-- Judge Synthesis Box -->
                 <div id="btst-judge-box" style="margin-top:14px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:gap:8px;">
                         <div style="font-size:0.80rem;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:6px;">
                             <span>👨‍⚖️ Gemini BTST Synthesis Judge</span>
                         </div>
                         <div style="font-size:0.76rem;color:var(--text-muted);">
-                            <span>Recommended Structure: <strong id="btst-judge-structure-label" style="color:#34d399;">HALF QUANTITY</strong></span>
+                            <span>Recommended Structure: <strong id="btst-judge-structure-label" style="color:#94a3b8;">--</strong></span>
                         </div>
                     </div>
                     <div id="btst-judge-action" style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:6px;">
-                        Take Half Quantity BTST position with strict morning exit target.
+                        Awaiting market analysis and debate synthesis...
                     </div>
                     <div id="btst-judge-rationale" style="font-size:0.78rem;color:var(--text-secondary,#94a3b8);line-height:1.45;">
-                        Strong global market and FII momentum supports overnight hold, but theta decay and approaching Tuesday expiry warrant defensive sizing.
+                        Run analysis to generate multi-persona risk committee debate and consensus.
                     </div>
                 </div>
             </section>
@@ -481,7 +481,7 @@
             </section>
 
             <!-- 3-Analyst Intraday Debate Committee -->
-            <section class="card animate-in animate-in-delay-2" id="intraday-debate-section" style="margin-bottom:24px;">
+            <section class="card animate-in animate-in-delay-2" id="intraday-debate-section" style="display:none; margin-bottom:24px;">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <span class="section-title__icon">⚔️</span>
@@ -492,56 +492,17 @@
                             <span>🔄</span>
                             <span>Refresh Intraday</span>
                         </button>
-                        <span id="intraday-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">
-                            SCALP PULLBACKS ONLY
+                        <span id="intraday-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
-                        <span id="intraday-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
-                            MAJORITY
+                        <span id="intraday-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
                     </div>
                 </div>
 
                 <!-- 3 Persona Cards Grid -->
-                <div id="intraday-debate-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
-                    <!-- Persona 1: Momentum Scalper -->
-                    <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🚀 Momentum Scalper</span>
-                            <span style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid #f8717144;font-weight:700;">SCALP PULLBACKS</span>
-                        </div>
-                        <div style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">ORB Breakout &amp; Trend · 70% Conf</div>
-                        <div style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Price edging toward support band below 24000 resistance. Look for pullbacks or breakdown confirmation for directional trades.
-                        </div>
-                        <div style="font-size:0.72rem;color:#38bdf8;">Trigger: ₹23,940</div>
-                    </div>
-
-                    <!-- Persona 2: Wall Defender -->
-                    <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🛡️ Wall Defender</span>
-                            <span style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid #fbbf2444;font-weight:700;">RANGE OPTION SELLING</span>
-                        </div>
-                        <div style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">OI Resistance &amp; Option Seller · 85% Conf</div>
-                        <div style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            The 24000 Call OI wall aligns with Max Pain, capping upside during choppy sessions. Non-directional theta collection (Strangles) offers lower risk.
-                        </div>
-                        <div style="font-size:0.72rem;color:#f59e0b;">Key Wall: ₹24,000</div>
-                    </div>
-
-                    <!-- Persona 3: Tactical Scalper -->
-                    <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;">
-                            <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">⚖️ Tactical Manager</span>
-                            <span style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid #f8717144;font-weight:700;">SCALP PULLBACKS</span>
-                        </div>
-                        <div style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Pullbacks &amp; R:R Execution · 70% Conf</div>
-                        <div style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Wait for pullbacks to respect VWAP support before entering. Strict stop loss at invalidation level to guarantee a 1:2+ risk-to-reward ratio.
-                        </div>
-                        <div style="font-size:0.72rem;color:#a78bfa;">Entry: 23,920 - 23,940</div>
-                    </div>
-                </div>
+                <div id="intraday-debate-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;"></div>
 
                 <!-- Judge Synthesis Box -->
                 <div id="intraday-judge-box" style="margin-top:14px;padding:12px 16px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;">
@@ -550,16 +511,16 @@
                             <span>👨‍⚖️ Gemini Intraday Judge Synthesis</span>
                         </div>
                         <div style="display:flex;gap:12px;font-size:0.76rem;color:var(--text-muted);">
-                            <span>📍 Entry: <strong id="intraday-judge-entry" style="color:#f8fafc;">23,920 - 23,940</strong></span>
-                            <span>🎯 Target: <strong id="intraday-judge-target" style="color:#34d399;">₹24,012.8</strong></span>
-                            <span>🛑 SL: <strong id="intraday-judge-sl" style="color:#f87171;">₹23,900.0</strong></span>
+                            <span>📍 Entry: <strong id="intraday-judge-entry" style="color:#f8fafc;">--</strong></span>
+                            <span>🎯 Target: <strong id="intraday-judge-target" style="color:#34d399;">--</strong></span>
+                            <span>🛑 SL: <strong id="intraday-judge-sl" style="color:#f87171;">--</strong></span>
                         </div>
                     </div>
                     <div id="intraday-judge-action" style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:6px;">
-                        Committee consensus: SCALP PULLBACKS ONLY. Execute with strict stop loss.
+                        Awaiting intraday session analysis...
                     </div>
                     <div id="intraday-judge-rationale" style="font-size:0.78rem;color:var(--text-secondary,#94a3b8);line-height:1.45;">
-                        Majority consensus reached on SCALP PULLBACKS ONLY. Call OI wall at 24000 limits extension, while support at 23930-23950 provides asymmetric risk-reward for tactical scalps.
+                        Run intraday analysis to view 3-analyst committee breakout and wall defense debate.
                     </div>
                 </div>
             </section>
@@ -717,11 +678,11 @@
                         <!-- Verdict Header -->
                         <div class="exit-verdict-header">
                             <div>
-                                <div class="exit-verdict-tag" id="exit-verdict-tag">TRAIL STOP LOSS</div>
-                                <div class="exit-engine-badge" id="exit-engine-badge">Groq AI (openai/gpt-oss-120b)</div>
+                                <div class="exit-verdict-tag" id="exit-verdict-tag">--</div>
+                                <div class="exit-engine-badge" id="exit-engine-badge">--</div>
                             </div>
                             <div class="exit-confidence-pill">
-                                <span id="exit-conf-val">85%</span> Confidence
+                                <span id="exit-conf-val">--</span> Confidence
                             </div>
                         </div>
 
@@ -780,17 +741,17 @@
                             </div>
                             <div class="exit-metric-item">
                                 <div class="exit-metric-label">Thesis Health</div>
-                                <div class="exit-metric-value" id="exit-metric-health">INTACT</div>
+                                <div class="exit-metric-value" id="exit-metric-health">--</div>
                             </div>
                             <div class="exit-metric-item">
                                 <div class="exit-metric-label">Evaluation Speed</div>
-                                <div class="exit-metric-value" id="exit-metric-latency">0 ms</div>
+                                <div class="exit-metric-value" id="exit-metric-latency">--</div>
                             </div>
                         </div>
 
                         <!-- Heavyweight Pulse -->
                         <div class="exit-hw-pulse" id="exit-hw-pulse">
-                            <strong>🏛️ Heavyweight Alignment:</strong> <span id="exit-hw-text">Loading...</span>
+                            <strong>🏛️ Heavyweight Alignment:</strong> <span id="exit-hw-text">--</span>
                         </div>
 
                         <!-- AI Reasoning -->
@@ -835,7 +796,7 @@
             </div>
 
             <!-- 3-Analyst Live Position Exit Debate Committee (Full Width) -->
-            <section class="card animate-in animate-in-delay-2" id="exit-advisor-debate-full-section" style="margin-bottom:24px;">
+            <section class="card animate-in animate-in-delay-2" id="exit-advisor-debate-full-section" style="display:none; margin-bottom:24px;">
                 <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <span class="section-title__icon">⚔️</span>
@@ -846,11 +807,11 @@
                             <span>🔄</span>
                             <span>Re-Evaluate Exit Debate</span>
                         </button>
-                        <span id="exit-full-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);">
-                            TRAIL SL TO COST
+                        <span id="exit-full-debate-structure-badge" style="font-size:0.75rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
-                        <span id="exit-full-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
-                            MAJORITY
+                        <span id="exit-full-debate-consensus-badge" style="font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:6px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);">
+                            --
                         </span>
                     </div>
                 </div>
@@ -861,39 +822,39 @@
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🏃 Runner Analyst</span>
-                            <span id="exit-verdict-runner" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(34,197,94,0.15);color:#4ade80;border:1px solid #4ade8044;font-weight:700;">HOLD AND RIDE</span>
+                            <span id="exit-verdict-runner" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="exit-meta-runner" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Momentum &amp; Trend Expansion · 80% Conf</div>
+                        <div id="exit-meta-runner" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Momentum &amp; Trend Expansion</div>
                         <div id="exit-rationale-runner" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Underlying spot momentum and heavyweight alignment (HDFC Bank &amp; Reliance) support letting profits run. Avoid panic selling on minor intraday pullbacks.
+                            Awaiting position evaluation...
                         </div>
-                        <div id="exit-sl-runner" style="font-size:0.72rem;color:#38bdf8;">Suggested SL: ₹23,920.0</div>
+                        <div id="exit-sl-runner" style="font-size:0.72rem;color:#38bdf8;">Suggested SL: --</div>
                     </div>
 
                     <!-- Persona 2: Capital Guardian -->
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">🛡️ Capital Guardian</span>
-                            <span id="exit-verdict-guardian" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(245,158,11,0.15);color:#fbbf24;border:1px solid #fbbf2444;font-weight:700;">TRAIL SL TIGHT</span>
+                            <span id="exit-verdict-guardian" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="exit-meta-guardian" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Theta Decay &amp; Capital Defense · 85% Conf</div>
+                        <div id="exit-meta-guardian" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Theta Decay &amp; Capital Defense</div>
                         <div id="exit-rationale-guardian" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Call OI resistance at 24000 and afternoon theta burn threaten unrealized gains. Protect principal capital by locking in a trailing stop near cost.
+                            Awaiting position evaluation...
                         </div>
-                        <div id="exit-sl-guardian" style="font-size:0.72rem;color:#f59e0b;">Suggested SL: ₹23,950.0</div>
+                        <div id="exit-sl-guardian" style="font-size:0.72rem;color:#f59e0b;">Suggested SL: --</div>
                     </div>
 
                     <!-- Persona 3: Tactical Scale-Out Manager -->
                     <div class="card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px;">
                         <div style="display:flex;justify-content:space-between;align-items:center;">
                             <span style="font-size:0.78rem;font-weight:600;color:#f1f5f9;">⚖️ Tactical Manager</span>
-                            <span id="exit-verdict-tactical" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);font-weight:700;">PARTIAL BOOK 50</span>
+                            <span id="exit-verdict-tactical" style="font-size:0.70rem;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,0.06);color:#94a3b8;border:1px solid rgba(255,255,255,0.1);font-weight:700;">--</span>
                         </div>
-                        <div id="exit-meta-tactical" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Scale-Out &amp; Risk-Reward · 75% Conf</div>
+                        <div id="exit-meta-tactical" style="font-size:0.70rem;color:var(--text-muted,#94a3b8);">Scale-Out &amp; Risk-Reward</div>
                         <div id="exit-rationale-tactical" style="font-size:0.76rem;color:var(--text-secondary,#cbd5e1);line-height:1.4;margin-top:2px;">
-                            Book 50% profit at the first target to make the position completely risk-free. Move stop loss on remaining 50% to entry breakeven.
+                            Awaiting position evaluation...
                         </div>
-                        <div id="exit-sl-tactical" style="font-size:0.72rem;color:#a78bfa;">Suggested SL: ₹23,935.0</div>
+                        <div id="exit-sl-tactical" style="font-size:0.72rem;color:#a78bfa;">Suggested SL: --</div>
                     </div>
                 </div>
 
@@ -904,15 +865,15 @@
                             <span>👨‍⚖️ Gemini Exit Synthesis Judge</span>
                         </div>
                         <div style="display:flex;gap:12px;font-size:0.76rem;color:var(--text-muted);">
-                            <span>📍 Trailing SL: <strong id="exit-full-judge-sl" style="color:#f87171;">₹23,935.0</strong></span>
-                            <span>🎯 Consensus: <strong id="exit-full-judge-consensus" style="color:#34d399;">MAJORITY</strong></span>
+                            <span>📍 Trailing SL: <strong id="exit-full-judge-sl" style="color:#f87171;">--</strong></span>
+                            <span>🎯 Consensus: <strong id="exit-full-judge-consensus" style="color:#34d399;">--</strong></span>
                         </div>
                     </div>
                     <div id="exit-full-judge-action" style="font-size:0.82rem;font-weight:600;color:#e2e8f0;margin-bottom:6px;">
-                        Book 50% profit now. Move trailing stop loss on remainder to ₹23,935.0.
+                        Awaiting position evaluation and exit committee debate...
                     </div>
                     <div id="exit-full-judge-rationale" style="font-size:0.78rem;color:var(--text-secondary,#94a3b8);line-height:1.45;">
-                        Majority committee consensus agrees on partial de-risking: locking in partial gains shields capital against the 24000 Call OI wall while allowing remaining lots to capture further trend expansion.
+                        Submit trade parameters above to evaluate live exit committee debate.
                     </div>
 
                     <!-- Full-Width Judge Scale-Out Plan -->

@@ -18,6 +18,7 @@ from llm_analyzer import analyze_with_ai_agents, GeminiQuotaError
 from memory_log import get_memory_log
 import yf_cache
 import debate_engine
+from institutional_scraper import get_cached_institutional_radar
 
 from .app import app, get_history_dir
 
@@ -160,8 +161,8 @@ def analyze():
             result["institutional_radar"] = get_cached_institutional_radar(
                 get_history_dir(), nifty_spot=live_spot, force_refresh=False
             )
-
-        except Exception:
+        except Exception as inst_err:
+            logger.warning(f"Failed to attach institutional radar: {inst_err}")
             result["institutional_radar"] = {}
 
         # Save manual run to history directory

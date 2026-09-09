@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 from .constants import TIMEZONE
 from .context_helpers import format_moneyness, format_dte, format_social_and_cognigraph
+from exit_fast.constants import _safe_float
 
 
 def build_exit_prompt_context(
@@ -27,11 +28,11 @@ def build_exit_prompt_context(
     trade_type = str(position.get("trade_type", "INTRADAY")).upper()
     side = str(position.get("position_side", "BUY_CE")).upper()
     strike = position.get("strike", "At-The-Money")
-    entry_spot = float(position.get("entry_spot") or live_signals.get("nifty_spot") or 0)
-    current_spot = float(live_signals.get("nifty_spot") or entry_spot)
+    entry_spot = _safe_float(position.get("entry_spot") or live_signals.get("nifty_spot"), default=0.0)
+    current_spot = _safe_float(live_signals.get("nifty_spot"), default=entry_spot)
 
-    entry_premium = float(position.get("entry_premium") or 0)
-    current_premium = float(position.get("current_premium") or 0)
+    entry_premium = _safe_float(position.get("entry_premium") or position.get("entry_price") or position.get("buy_price") or position.get("avg_price"), default=0.0)
+    current_premium = _safe_float(position.get("current_premium") or position.get("current_ltp") or position.get("current_price") or position.get("ltp"), default=0.0)
     entry_time = position.get("entry_time", "Earlier today")
     risk_profile = position.get("risk_profile", "BALANCED").upper()
     dte = position.get("dte")

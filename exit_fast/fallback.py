@@ -3,7 +3,8 @@ exit_fast/fallback.py — Pure mathematical rule-based fallback when AI is unava
 """
 
 from typing import Any
-from .constants import _safe_float
+from datetime import datetime
+from .constants import TIMEZONE, _safe_float
 from .scale_out import _build_scale_out_plan
 
 def generate_rule_based_fallback(
@@ -23,8 +24,8 @@ def generate_rule_based_fallback(
     current_spot = _safe_float(live_signals.get("nifty_spot"), entry_spot)
     if current_spot <= 0:
         current_spot = entry_spot
-    entry_premium = _safe_float(position.get("entry_premium"), 0.0)
-    current_premium = _safe_float(position.get("current_premium"), 0.0)
+    entry_premium = _safe_float(position.get("entry_premium") or position.get("entry_price") or position.get("buy_price") or position.get("avg_price"), 0.0)
+    current_premium = _safe_float(position.get("current_premium") or position.get("current_ltp") or position.get("current_price") or position.get("ltp"), 0.0)
 
     spot_change_pct = ((current_spot - entry_spot) / entry_spot) * 100 if entry_spot > 0 else 0.0
     pts_diff = round(current_spot - entry_spot, 1)
