@@ -2578,9 +2578,6 @@ function renderInstitutionalRadar(data) {
     if (tsEl && radar.fetched_at_ist) tsEl.textContent = `Cached: ${radar.fetched_at_ist}`;
 
     // ─── Matrix Table: Providers in columns, Levels in rows ───────────────
-    const providerCalls = radar.provider_calls || {};
-    const consensus = radar.consensus || {};
-    const niftySpot = radar.nifty_spot;
 
     // Build header columns
     const headerRow = document.getElementById("inst-matrix-header");

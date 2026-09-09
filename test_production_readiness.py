@@ -278,5 +278,24 @@ class TestProductionReadiness(unittest.TestCase):
         self.assertTrue(hasattr(server, "app"))
         self.assertEqual(server.app.name, "routes.app")
 
+    def test_14_javascript_syntax_and_button_bindings(self):
+        """Verify script.js compiles without syntax errors and attaches click handlers to action buttons."""
+        import shutil
+        import subprocess
+
+        js_path = os.path.join(REPO_DIR, "static", "script.js")
+        with open(js_path, "r", encoding="utf-8") as f:
+            js_content = f.read()
+
+        # Check button bindings exist
+        self.assertIn('btnAnalyze.addEventListener("click"', js_content)
+        self.assertIn('btnViewHistory.addEventListener("click"', js_content)
+
+        # Check node syntax compilation if node runtime is available
+        node_bin = shutil.which("node")
+        if node_bin:
+            res = subprocess.run([node_bin, "-c", js_path], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"SyntaxError in script.js:\n{res.stderr}")
+
 if __name__ == "__main__":
     unittest.main()
