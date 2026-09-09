@@ -431,7 +431,10 @@ def walk_forward_simulation_api():
         history_dir = get_history_dir()
         report_file = os.path.join(history_dir, "walk_forward_simulation_report.json")
 
-        if request.method == "GET" and not request.args.get("force_run"):
+        force_run_param = str(request.args.get("force_run", "")).lower()
+        force_run = force_run_param in ("1", "true", "yes")
+
+        if request.method == "GET" and not force_run:
             if os.path.exists(report_file):
                 try:
                     with open(report_file, "r", encoding="utf-8") as f:
@@ -446,12 +449,24 @@ def walk_forward_simulation_api():
         else:
             body = request.args
 
-        months = int(body.get("months", 6))
+        try:
+            months = int(float(str(body.get("months", 6)).strip()))
+        except Exception:
+            months = 6
         months = max(1, min(12, months))
-        initial_capital = float(body.get("initial_capital", 100000.0))
-        risk_profile = str(body.get("risk_profile", "BALANCED")).upper()
-        enable_cognigraph = str(body.get("enable_cognigraph", "true")).lower() in ("true", "1", "yes")
-        enable_scale_out = str(body.get("enable_scale_out", "true")).lower() in ("true", "1", "yes")
+
+        try:
+            initial_capital = float(str(body.get("initial_capital", 100000.0)).replace(",", "").replace("₹", "").strip())
+        except Exception:
+            initial_capital = 100000.0
+        initial_capital = max(1000.0, initial_capital)
+
+        risk_profile = str(body.get("risk_profile") or "BALANCED").strip().upper()
+        if risk_profile not in ("CONSERVATIVE", "AGGRESSIVE", "BALANCED"):
+            risk_profile = "BALANCED"
+
+        enable_cognigraph = str(body.get("enable_cognigraph", "true")).lower() not in ("false", "0", "no")
+        enable_scale_out = str(body.get("enable_scale_out", "true")).lower() not in ("false", "0", "no")
 
         results = run_walk_forward_simulation(
             months=months,

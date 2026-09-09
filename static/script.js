@@ -2949,7 +2949,7 @@ function renderWalkForwardSimulation(data) {
     }
 
     // Chart
-    renderEquityCurveSVG(data.equity_curve || []);
+    renderEquityCurveSVG(data.equity_curve || [], data.initial_capital);
 
     // Monthly Table
     const monthlyTbody = document.getElementById("wf-monthly-table-body");
@@ -2998,7 +2998,7 @@ function renderWalkForwardSimulation(data) {
     }
 }
 
-function renderEquityCurveSVG(equityCurve) {
+function renderEquityCurveSVG(equityCurve, initialCapital = 100000) {
     const container = document.getElementById("wf-equity-chart-container");
     if (!container) return;
     if (!equityCurve || equityCurve.length < 2) {
@@ -3011,14 +3011,21 @@ function renderEquityCurveSVG(equityCurve) {
     const padding = { top: 15, right: 15, bottom: 20, left: 45 };
 
     const values = equityCurve.map(pt => pt.equity);
-    const minVal = Math.min(...values) * 0.98;
-    const maxVal = Math.max(...values) * 1.02;
+    const baseCapital = Number(initialCapital) || values[0] || 100000;
+    let minVal = Math.min(...values, baseCapital) * 0.98;
+    let maxVal = Math.max(...values, baseCapital) * 1.02;
+
+    // Zero-variance protection: prevent minVal === maxVal producing NaN coordinates
+    if (maxVal - minVal < 1e-6) {
+        minVal = minVal * 0.95;
+        maxVal = maxVal * 1.05 + 1.0;
+    }
     const n = values.length;
 
     const scaleX = i => padding.left + (i / (n - 1)) * (w - padding.left - padding.right);
     const scaleY = val => h - padding.bottom - ((val - minVal) / (maxVal - minVal)) * (h - padding.top - padding.bottom);
 
-    const baselineY = scaleY(100000);
+    const baselineY = scaleY(baseCapital);
 
     const points = values.map((val, idx) => `${scaleX(idx).toFixed(1)},${scaleY(val).toFixed(1)}`).join(" ");
 
@@ -3029,8 +3036,9 @@ function renderEquityCurveSVG(equityCurve) {
     const areaPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
 
     const lastVal = values[values.length - 1];
-    const isUp = lastVal >= 100000;
+    const isUp = lastVal >= baseCapital;
     const strokeColor = isUp ? "#34d399" : "#f87171";
+    const baseK = Math.round(baseCapital / 1000);
 
     const svgHtml = `
         <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%;overflow:visible;">
@@ -3040,9 +3048,9 @@ function renderEquityCurveSVG(equityCurve) {
                     <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0.0" />
                 </linearGradient>
             </defs>
-            <!-- Baseline (100k) -->
+            <!-- Baseline -->
             <line x1="${padding.left}" y1="${baselineY}" x2="${w - padding.right}" y2="${baselineY}" stroke="rgba(255,255,255,0.15)" stroke-dasharray="3,3" stroke-width="1" />
-            <text x="${padding.left + 4}" y="${baselineY - 4}" fill="rgba(255,255,255,0.4)" font-size="9" font-family="sans-serif">₹100k Base</text>
+            <text x="${padding.left + 4}" y="${baselineY - 4}" fill="rgba(255,255,255,0.4)" font-size="9" font-family="sans-serif">₹${baseK}k Base</text>
 
             <!-- Area Fill -->
             <polygon points="${areaPoints}" fill="url(#eqGrad)" />

@@ -53,6 +53,18 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _safe_int(val: Any, default: int = 0) -> int:
+    """Safely cast value to int."""
+    if val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        return int(float(str(val).strip()))
+    except Exception:
+        return default
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. Historical Data Feed & Realistic Session Generator
 # ─────────────────────────────────────────────────────────────────────────────
@@ -241,15 +253,16 @@ def evaluate_7_specialist_dimensions(session: dict[str, Any]) -> dict[str, Any]:
     6. Macro & Global: FII/DII institutional cash flow + S&P 500 / NASDAQ overnight cues.
     7. Social Contrarian: Retail crowd mood vs institutional money positioning (Trap alerts).
     """
-    dte = session.get("dte", 3)
-    pcr = session.get("pcr", 1.0)
-    vix = session.get("india_vix", 14.0)
-    vix_change = session.get("vix_change_pct", 0.0)
-    change_pct = session.get("change_pct", 0.0)
-    fii_net = session.get("fii_net_crores", 0.0)
-    social = session.get("social_sentiment", {})
-    contrarian_alert = social.get("contrarian_warning", "")
-    hw = session.get("heavyweights", {})
+    session = session or {}
+    dte = _safe_int(session.get("dte"), 3)
+    pcr = _safe_float(session.get("pcr"), 1.0)
+    vix = _safe_float(session.get("india_vix"), 14.0)
+    vix_change = _safe_float(session.get("vix_change_pct"), 0.0)
+    change_pct = _safe_float(session.get("change_pct"), 0.0)
+    fii_net = _safe_float(session.get("fii_net_crores"), 0.0)
+    social = session.get("social_sentiment") or {}
+    contrarian_alert = str(social.get("contrarian_warning") or "")
+    hw = session.get("heavyweights") or {}
 
     # 1. Greeks & Decay Agent
     greeks_verdict = "HOLD"
@@ -274,8 +287,8 @@ def evaluate_7_specialist_dimensions(session: dict[str, Any]) -> dict[str, Any]:
         oi_note = f"PCR at {pcr:.2f}: Even distribution across option strikes."
 
     # 3. Heavyweights Agent
-    hw_bulls = sum(1 for s in hw.values() if s.get("change_pct", 0) > 0.3)
-    hw_bears = sum(1 for s in hw.values() if s.get("change_pct", 0) < -0.3)
+    hw_bulls = sum(1 for s in hw.values() if isinstance(s, dict) and _safe_float(s.get("change_pct")) > 0.3)
+    hw_bears = sum(1 for s in hw.values() if isinstance(s, dict) and _safe_float(s.get("change_pct")) < -0.3)
     if hw_bulls >= 3:
         hw_verdict = "BULLISH_ALIGNED"
         hw_note = f"{hw_bulls}/5 heavyweights strongly advancing (>0.3%)."
@@ -309,7 +322,8 @@ def evaluate_7_specialist_dimensions(session: dict[str, Any]) -> dict[str, Any]:
         vix_note = f"VIX at {vix:.1f}; standard options pricing environment."
 
     # 6. Macro & Global Agent
-    sp_pct = session.get("global_cues", {}).get("sp500_pct", 0.0)
+    global_cues = session.get("global_cues") or {}
+    sp_pct = _safe_float(global_cues.get("sp500_pct"), 0.0)
     if fii_net > 1000 and sp_pct > 0.2:
         macro_verdict = "BULLISH_FLOW"
         macro_note = f"FII net cash buying +₹{fii_net:,.0f} Cr aligned with positive US markets."
@@ -359,16 +373,17 @@ class CogniGraphWalkForwardLearner:
 
     def classify_regime(self, session: dict[str, Any]) -> str:
         """Categorize into discrete regime signature: VIX | DTE | FII | GAP."""
-        vix = session.get("india_vix", 14.0)
+        session = session or {}
+        vix = _safe_float(session.get("india_vix"), 14.0)
         vix_b = "VIX_LOW" if vix < 13.0 else ("VIX_HIGH" if vix >= 16.5 else "VIX_MOD")
 
-        dte = session.get("dte", 3)
+        dte = _safe_int(session.get("dte"), 3)
         dte_b = "DTE_EXPIRY" if dte == 0 else ("DTE_NEAR" if dte <= 2 else "DTE_FAR")
 
-        fii = session.get("fii_net_crores", 0.0)
+        fii = _safe_float(session.get("fii_net_crores"), 0.0)
         fii_b = "FII_BUY" if fii > 600 else ("FII_SELL" if fii < -600 else "FII_NEUT")
 
-        gap = session.get("next_day_gap_pct", 0.0)
+        gap = _safe_float(session.get("next_day_gap_pct"), 0.0)
         gap_b = "GAP_BULL" if gap > 0.20 else ("GAP_BEAR" if gap < -0.20 else "GAP_FLAT")
 
         signature = f"{vix_b}|{dte_b}|{fii_b}|{gap_b}"
@@ -430,12 +445,14 @@ def simulate_debate_committee(
     - Tactical Structurer (Neutral): Weights risk-reward, suggests lot sizing & scale-out plan.
     - Judge: Synthesizes final verdict, applies CogniGraph trap guardrail and scale-out tiers.
     """
-    pa = dimensions["price_action"]["verdict"]
-    hw = dimensions["heavyweights"]["verdict"]
-    vix_regime = dimensions["vix_regime"]["verdict"]
-    contrarian = dimensions["social_contrarian"]["verdict"]
-    macro = dimensions["macro_global"]["verdict"]
-    pcr_state = dimensions["oi_pcr"]["verdict"]
+    dimensions = dimensions or {}
+    session = session or {}
+    pa = (dimensions.get("price_action") or {}).get("verdict", "CONSOLIDATION")
+    hw = (dimensions.get("heavyweights") or {}).get("verdict", "DIVERGENT")
+    vix_regime = (dimensions.get("vix_regime") or {}).get("verdict", "NORMAL")
+    contrarian = (dimensions.get("social_contrarian") or {}).get("verdict", "NEUTRAL")
+    macro = (dimensions.get("macro_global") or {}).get("verdict", "NEUTRAL")
+    pcr_state = (dimensions.get("oi_pcr") or {}).get("verdict", "BALANCED")
 
     bullish_votes = 0
     bearish_votes = 0
@@ -544,13 +561,21 @@ class TradeExecutionEngine:
     - Transaction costs & slippage (0.05% slippage + ₹40 exchange/brokerage charge).
     """
 
-    def __init__(self, initial_capital: float = 100000.0, lot_size: int = 75, enable_scale_out: bool = True):
-        self.initial_capital = initial_capital
-        self.capital = initial_capital
-        self.lot_size = lot_size
+    def __init__(
+        self,
+        initial_capital: float = 100000.0,
+        lot_size: int = 75,
+        enable_scale_out: bool = True,
+        risk_profile: str = "BALANCED",
+    ):
+        self.initial_capital = max(1000.0, _safe_float(initial_capital, 100000.0))
+        self.capital = self.initial_capital
+        self.lot_size = max(1, _safe_int(lot_size, 75))
         self.enable_scale_out = enable_scale_out
+        self.risk_profile = str(risk_profile or "BALANCED").strip().upper()
         self.closed_trades: list[dict[str, Any]] = []
         self.daily_equity_curve: list[dict[str, Any]] = []
+        self.is_bankrupt: bool = False
 
     def execute_session_trade(
         self,
@@ -558,13 +583,17 @@ class TradeExecutionEngine:
         decision: dict[str, Any],
         regime: str,
     ) -> Optional[dict[str, Any]]:
+        session = session or {}
+        decision = decision or {}
         side = decision.get("position_side", "NO_TRADE")
         verdict = decision.get("verdict", "STRICT_NO_TRADE")
 
-        if side == "NO_TRADE" or verdict == "STRICT_NO_TRADE":
+        # Margin Call / Depletion Protection
+        if self.is_bankrupt or self.capital < 15000.0:
+            self.is_bankrupt = True
             self.daily_equity_curve.append({
-                "date": session["date"],
-                "session_id": session["session_id"],
+                "date": session.get("date", ""),
+                "session_id": session.get("session_id", ""),
                 "equity": round(self.capital, 2),
                 "daily_pnl": 0.0,
                 "daily_return_pct": 0.0,
@@ -572,19 +601,39 @@ class TradeExecutionEngine:
             })
             return None
 
-        lots = 2 if verdict == "FULL_BTST" else 1
+        if side == "NO_TRADE" or verdict == "STRICT_NO_TRADE":
+            self.daily_equity_curve.append({
+                "date": session.get("date", ""),
+                "session_id": session.get("session_id", ""),
+                "equity": round(self.capital, 2),
+                "daily_pnl": 0.0,
+                "daily_return_pct": 0.0,
+                "drawdown_pct": 0.0,
+            })
+            return None
+
+        # Position Sizing based on risk profile and available capital
+        if self.risk_profile == "AGGRESSIVE":
+            base_lots = 3 if verdict == "FULL_BTST" else 2
+        elif self.risk_profile == "CONSERVATIVE":
+            base_lots = 1
+        else:  # BALANCED
+            base_lots = 2 if verdict == "FULL_BTST" else 1
+
+        max_affordable_lots = max(1, int(self.capital // 25000))
+        lots = min(base_lots, max_affordable_lots)
         num_shares = lots * self.lot_size
 
-        entry_spot = session["close"]
-        next_open = session["next_day_open"]
-        gap_pct = session["next_day_gap_pct"]
+        entry_spot = _safe_float(session.get("close"), 24000.0)
+        next_open = _safe_float(session.get("next_day_open"), entry_spot)
+        gap_pct = _safe_float(session.get("next_day_gap_pct"), 0.0)
         spot_pts = next_open - entry_spot
 
         is_ce = (side == "BUY_CE")
         trade_spot_pts = spot_pts if is_ce else -spot_pts
         trade_spot_pct = gap_pct if is_ce else -gap_pct
 
-        dte = session.get("dte", 3)
+        dte = _safe_int(session.get("dte"), 3)
         theta_drag_pts = 12.0 if dte <= 1 else (8.0 if dte <= 3 else 5.0)
 
         if self.enable_scale_out:
@@ -605,13 +654,13 @@ class TradeExecutionEngine:
         net_pts_after_slip = net_option_pts - slippage_pts
         trade_pnl_inr = round(net_pts_after_slip * num_shares - 40.0, 2)
 
-        trade_pnl_pct = round((trade_pnl_inr / self.capital) * 100, 3)
-        self.capital += trade_pnl_inr
+        trade_pnl_pct = round((trade_pnl_inr / self.capital) * 100, 3) if self.capital > 0 else 0.0
+        self.capital = max(0.0, self.capital + trade_pnl_inr)
 
         trade_record = {
             "trade_id": f"TRD_{len(self.closed_trades) + 1:03d}",
-            "session_id": session["session_id"],
-            "date": session["date"],
+            "session_id": session.get("session_id", ""),
+            "date": session.get("date", ""),
             "regime": regime,
             "side": side,
             "verdict": verdict,
@@ -630,8 +679,8 @@ class TradeExecutionEngine:
         self.closed_trades.append(trade_record)
 
         self.daily_equity_curve.append({
-            "date": session["date"],
-            "session_id": session["session_id"],
+            "date": session.get("date", ""),
+            "session_id": session.get("session_id", ""),
             "equity": round(self.capital, 2),
             "daily_pnl": trade_pnl_inr,
             "daily_return_pct": trade_pnl_pct,
@@ -667,6 +716,7 @@ class QuantitativeMetricsCalculator:
         if not equity_curve:
             return {}
 
+        initial_capital = max(1000.0, _safe_float(initial_capital, 100000.0))
         final_capital = equity_curve[-1]["equity"]
         total_pnl = round(final_capital - initial_capital, 2)
         cumulative_return_pct = round(((final_capital - initial_capital) / initial_capital) * 100, 2)
@@ -704,7 +754,12 @@ class QuantitativeMetricsCalculator:
         variance = sum((r - mean_daily_return) ** 2 for r in daily_returns) / (n_days - 1) if n_days > 1 else 0.0
         std_daily = math.sqrt(variance)
 
-        if std_daily > 1e-6:
+        total_trades = len(trades)
+        winning_trades = [t for t in trades if t["is_win"]]
+        losing_trades = [t for t in trades if not t["is_win"]]
+        win_rate = round((len(winning_trades) / total_trades) * 100, 1) if total_trades > 0 else 0.0
+
+        if std_daily > 1e-6 and total_trades > 0:
             sharpe_ratio = round((mean_excess / std_daily) * math.sqrt(TRADING_DAYS_PER_YEAR), 2)
         else:
             sharpe_ratio = 0.0
@@ -712,15 +767,10 @@ class QuantitativeMetricsCalculator:
         downside_sq_sum = sum(min(0.0, r - daily_rf) ** 2 for r in daily_returns)
         downside_dev = math.sqrt(downside_sq_sum / n_days) if n_days > 0 else 0.0
 
-        if downside_dev > 1e-6:
+        if downside_dev > 1e-6 and total_trades > 0 and std_daily > 1e-6:
             sortino_ratio = round((mean_excess / downside_dev) * math.sqrt(TRADING_DAYS_PER_YEAR), 2)
         else:
             sortino_ratio = 0.0
-
-        total_trades = len(trades)
-        winning_trades = [t for t in trades if t["is_win"]]
-        losing_trades = [t for t in trades if not t["is_win"]]
-        win_rate = round((len(winning_trades) / total_trades) * 100, 1) if total_trades > 0 else 0.0
 
         gross_profit = sum(t["pnl_inr"] for t in winning_trades)
         gross_loss = abs(sum(t["pnl_inr"] for t in losing_trades))
@@ -811,6 +861,12 @@ def run_walk_forward_simulation(
     Executes all 126 trading days across 7 dimensions, CogniGraph regimes,
     debate committees, and 3-tier scale out execution in <1 second.
     """
+    months = max(1, min(12, _safe_int(months, 6)))
+    initial_capital = max(1000.0, _safe_float(initial_capital, 100000.0))
+    risk_profile = str(risk_profile or "BALANCED").strip().upper()
+    if risk_profile not in ("CONSERVATIVE", "AGGRESSIVE", "BALANCED"):
+        risk_profile = "BALANCED"
+
     start_time = datetime.now()
     feed = HistoricalDataFeed(history_dir=history_dir)
     sessions = feed.load_or_generate_sessions(months=months)
@@ -819,6 +875,7 @@ def run_walk_forward_simulation(
     executor = TradeExecutionEngine(
         initial_capital=initial_capital,
         enable_scale_out=enable_scale_out,
+        risk_profile=risk_profile,
     )
 
     logger.info(f"Starting {months}-month historical walk-forward simulation across {len(sessions)} sessions...")
@@ -831,7 +888,7 @@ def run_walk_forward_simulation(
         regime = cg_learner.classify_regime(session)
 
         # Step 3: Failure Trap Invalidation Check
-        preliminary_side = "BUY_CE" if session["change_pct"] > 0 else "BUY_PE"
+        preliminary_side = "BUY_CE" if _safe_float(session.get("change_pct")) > 0 else "BUY_PE"
         trap_warning = cg_learner.check_failure_trap(regime, preliminary_side)
 
         # Step 4: Multi-Persona Risk Debate Committee Simulation
