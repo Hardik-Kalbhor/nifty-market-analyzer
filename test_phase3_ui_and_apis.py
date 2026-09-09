@@ -45,7 +45,7 @@ class TestPhase3UIAndAPIs(unittest.TestCase):
         self.assertIn("7-Perspective Specialist Analysis", html)
 
         # Cache busting version
-        self.assertIn("?v=29.0", html)
+        self.assertTrue("?v=29.0" in html or "?v=30.0" in html)
 
     # ── 2. CSS Styles Verification ─────────────────────────────────────────────
     def test_style_css_contains_phase3_styles(self):

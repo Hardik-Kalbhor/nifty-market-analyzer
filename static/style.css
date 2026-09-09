@@ -2120,3 +2120,17 @@ body::before {
 .scale-out-tier-row:hover {
     background: rgba(255, 255, 255, 0.03);
 }
+
+/* Walk-Forward Simulation Styling */
+#walk-forward-simulation-section table tbody tr {
+    transition: background 0.15s ease;
+}
+
+#walk-forward-simulation-section table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.035);
+}
+
+#wf-equity-chart-container polyline {
+    filter: drop-shadow(0 2px 8px rgba(52, 211, 153, 0.25));
+}
+

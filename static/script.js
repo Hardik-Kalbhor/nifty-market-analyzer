@@ -76,6 +76,7 @@ function switchTab(tab) {
         loadCogniGraphData();
         loadDreamingData();
         loadTrajectoryStats();
+        loadWalkForwardSimulationData();
     }
 }
 
@@ -2416,6 +2417,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initExitAdvisor();
     autoLoadLatestAnalysis();
     initCogniGraphTabListeners();
+    initWalkForwardSimulationListeners();
 
     const hash = (window.location.hash || "").replace("#", "").toLowerCase();
     if (hash && ["btst", "intraday", "exit-advisor", "history", "cognigraph"].includes(hash)) {
@@ -2889,5 +2891,210 @@ function initCogniGraphTabListeners() {
     if (exportSharegptBtn) exportSharegptBtn.addEventListener("click", () => triggerExport("sharegpt"));
     if (exportAlpacaBtn) exportAlpacaBtn.addEventListener("click", () => triggerExport("alpaca"));
     if (exportDpoBtn) exportDpoBtn.addEventListener("click", () => triggerExport("dpo"));
+}
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 6: Multi-Month Historical Walk-Forward Simulation
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async function loadWalkForwardSimulationData(forceRun = false) {
+    const statusBadge = document.getElementById("walk-forward-status-badge");
+    try {
+        const url = forceRun ? "/api/simulation/walk-forward?force_run=1" : "/api/simulation/walk-forward";
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.status === "ok" && json.data) {
+            renderWalkForwardSimulation(json.data);
+            if (statusBadge) {
+                statusBadge.textContent = `${json.data.total_trades || 0} TRADES / ${json.data.simulation_config?.sessions_count || 126} SESSIONS`;
+                statusBadge.style.color = "#34d399";
+                statusBadge.style.borderColor = "rgba(52,211,153,0.3)";
+                statusBadge.style.background = "rgba(52,211,153,0.1)";
+            }
+        }
+    } catch (e) {
+        console.warn("loadWalkForwardSimulationData failed:", e);
+    }
+}
+
+function renderWalkForwardSimulation(data) {
+    if (!data) return;
+
+    // Metrics Scorecard
+    const elReturn = document.getElementById("wf-metric-return");
+    const elPnl = document.getElementById("wf-metric-pnl");
+    const elSharpe = document.getElementById("wf-metric-sharpe");
+    const elSortino = document.getElementById("wf-metric-sortino");
+    const elDd = document.getElementById("wf-metric-drawdown");
+    const elWinrate = document.getElementById("wf-metric-winrate");
+
+    const retPct = data.cumulative_return_pct ?? 0;
+    if (elReturn) {
+        elReturn.textContent = `${retPct >= 0 ? "+" : ""}${retPct.toFixed(1)}%`;
+        elReturn.style.color = retPct >= 0 ? "#34d399" : "#f87171";
+    }
+
+    const pnl = data.total_pnl_inr ?? 0;
+    if (elPnl) {
+        elPnl.textContent = `₹${pnl >= 0 ? "+" : ""}${Math.round(pnl).toLocaleString("en-IN")}`;
+        elPnl.style.color = pnl >= 0 ? "#60a5fa" : "#f87171";
+    }
+
+    if (elSharpe) elSharpe.textContent = (data.sharpe_ratio ?? 0).toFixed(2);
+    if (elSortino) elSortino.textContent = (data.sortino_ratio ?? 0).toFixed(2);
+    if (elDd) elDd.textContent = `-${(data.max_drawdown_pct ?? 0).toFixed(1)}%`;
+    if (elWinrate) {
+        elWinrate.textContent = `${(data.win_rate_pct ?? 0).toFixed(1)}%`;
+    }
+
+    // Chart
+    renderEquityCurveSVG(data.equity_curve || []);
+
+    // Monthly Table
+    const monthlyTbody = document.getElementById("wf-monthly-table-body");
+    if (monthlyTbody) {
+        const months = data.monthly_performance || [];
+        if (months.length === 0) {
+            monthlyTbody.innerHTML = `<tr><td colspan="4" style="padding:8px;color:var(--text-muted);text-align:center;">No monthly data</td></tr>`;
+        } else {
+            monthlyTbody.innerHTML = months.map(m => {
+                const isProfitable = m.pnl_inr >= 0;
+                return `
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                        <td style="padding:6px;font-weight:600;color:#f1f5f9;">${escapeHtml(m.month)}</td>
+                        <td style="padding:6px;color:var(--text-muted);">${m.trades} (${m.wins}W)</td>
+                        <td style="padding:6px;color:${m.win_rate >= 50 ? '#34d399' : '#f87171'};font-weight:600;">${m.win_rate}%</td>
+                        <td style="padding:6px;text-align:right;font-weight:700;color:${isProfitable ? '#34d399' : '#f87171'};">
+                            ${isProfitable ? "+" : ""}₹${Math.round(m.pnl_inr).toLocaleString("en-IN")}
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+        }
+    }
+
+    // Regime Table
+    const regimeTbody = document.getElementById("wf-regime-table-body");
+    if (regimeTbody) {
+        const regimes = data.regime_performance || [];
+        if (regimes.length === 0) {
+            regimeTbody.innerHTML = `<tr><td colspan="4" style="padding:8px;color:var(--text-muted);text-align:center;">No regime data</td></tr>`;
+        } else {
+            regimeTbody.innerHTML = regimes.slice(0, 6).map(r => {
+                const isProfitable = r.pnl_inr >= 0;
+                return `
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                        <td style="padding:6px;font-family:monospace;font-size:0.70rem;color:#a5b4fc;">${escapeHtml(r.regime)}</td>
+                        <td style="padding:6px;color:var(--text-muted);">${r.trades} (${r.wins}W)</td>
+                        <td style="padding:6px;color:${r.win_rate >= 50 ? '#34d399' : '#f87171'};font-weight:600;">${r.win_rate}%</td>
+                        <td style="padding:6px;text-align:right;font-weight:700;color:${isProfitable ? '#34d399' : '#f87171'};">
+                            ${isProfitable ? "+" : ""}₹${Math.round(r.pnl_inr).toLocaleString("en-IN")}
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+        }
+    }
+}
+
+function renderEquityCurveSVG(equityCurve) {
+    const container = document.getElementById("wf-equity-chart-container");
+    if (!container) return;
+    if (!equityCurve || equityCurve.length < 2) {
+        container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:0.80rem;">Insufficient equity data for chart</div>`;
+        return;
+    }
+
+    const w = container.clientWidth || 600;
+    const h = 150;
+    const padding = { top: 15, right: 15, bottom: 20, left: 45 };
+
+    const values = equityCurve.map(pt => pt.equity);
+    const minVal = Math.min(...values) * 0.98;
+    const maxVal = Math.max(...values) * 1.02;
+    const n = values.length;
+
+    const scaleX = i => padding.left + (i / (n - 1)) * (w - padding.left - padding.right);
+    const scaleY = val => h - padding.bottom - ((val - minVal) / (maxVal - minVal)) * (h - padding.top - padding.bottom);
+
+    const baselineY = scaleY(100000);
+
+    const points = values.map((val, idx) => `${scaleX(idx).toFixed(1)},${scaleY(val).toFixed(1)}`).join(" ");
+
+    // Fill area polygon
+    const firstX = scaleX(0).toFixed(1);
+    const lastX = scaleX(n - 1).toFixed(1);
+    const bottomY = (h - padding.bottom).toFixed(1);
+    const areaPoints = `${firstX},${bottomY} ${points} ${lastX},${bottomY}`;
+
+    const lastVal = values[values.length - 1];
+    const isUp = lastVal >= 100000;
+    const strokeColor = isUp ? "#34d399" : "#f87171";
+
+    const svgHtml = `
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%;overflow:visible;">
+            <defs>
+                <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.3" />
+                    <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0.0" />
+                </linearGradient>
+            </defs>
+            <!-- Baseline (100k) -->
+            <line x1="${padding.left}" y1="${baselineY}" x2="${w - padding.right}" y2="${baselineY}" stroke="rgba(255,255,255,0.15)" stroke-dasharray="3,3" stroke-width="1" />
+            <text x="${padding.left + 4}" y="${baselineY - 4}" fill="rgba(255,255,255,0.4)" font-size="9" font-family="sans-serif">₹100k Base</text>
+
+            <!-- Area Fill -->
+            <polygon points="${areaPoints}" fill="url(#eqGrad)" />
+
+            <!-- Curve Line -->
+            <polyline points="${points}" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+
+            <!-- Start & End Dots -->
+            <circle cx="${scaleX(0)}" cy="${scaleY(values[0])}" r="3.5" fill="#94a3b8" />
+            <circle cx="${scaleX(n - 1)}" cy="${scaleY(lastVal)}" r="4.5" fill="${strokeColor}" stroke="#ffffff" stroke-width="1.5" />
+
+            <!-- Value Labels -->
+            <text x="${w - padding.right - 2}" y="${scaleY(lastVal) - 6}" fill="${strokeColor}" font-size="10" font-weight="700" text-anchor="end" font-family="sans-serif">
+                ₹${Math.round(lastVal).toLocaleString("en-IN")}
+            </text>
+        </svg>
+    `;
+
+    container.innerHTML = svgHtml;
+}
+
+function initWalkForwardSimulationListeners() {
+    const runBtn = document.getElementById("btn-run-walk-forward");
+    if (runBtn) {
+        runBtn.addEventListener("click", async () => {
+            runBtn.disabled = true;
+            runBtn.innerHTML = `<span>⏳</span><span>Simulating 6 Months...</span>`;
+            try {
+                const res = await fetch("/api/simulation/walk-forward", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ months: 6, initial_capital: 100000, risk_profile: "BALANCED" }),
+                });
+                const json = await res.json();
+                if (json.status === "ok" && json.data) {
+                    renderWalkForwardSimulation(json.data);
+                    const statusBadge = document.getElementById("walk-forward-status-badge");
+                    if (statusBadge) {
+                        statusBadge.textContent = `${json.data.total_trades || 0} TRADES / ${json.data.simulation_config?.sessions_count || 126} SESSIONS`;
+                        statusBadge.style.color = "#34d399";
+                    }
+                } else {
+                    alert("Walk-forward simulation failed: " + (json.message || "Unknown error"));
+                }
+            } catch (e) {
+                console.error("Walk-forward error:", e);
+                alert("Network error executing walk-forward simulation.");
+            } finally {
+                runBtn.disabled = false;
+                runBtn.innerHTML = `<span>🚀</span><span>Run Walk-Forward Simulation</span>`;
+            }
+        });
+    }
 }
 

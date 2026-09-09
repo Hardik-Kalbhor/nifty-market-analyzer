@@ -419,6 +419,54 @@ def export_trajectories():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/simulation/walk-forward", methods=["GET", "POST"])
+def walk_forward_simulation_api():
+    """
+    Phase 6: Multi-Month Historical Walk-Forward Simulation API.
+    Replays 6 months of historical sessions through 7 specialist dimensions,
+    CogniGraph regimes, debate committees, and 3-tier scale-out engine.
+    """
+    try:
+        from walk_forward_simulation import run_walk_forward_simulation
+        history_dir = get_history_dir()
+        report_file = os.path.join(history_dir, "walk_forward_simulation_report.json")
+
+        if request.method == "GET" and not request.args.get("force_run"):
+            if os.path.exists(report_file):
+                try:
+                    with open(report_file, "r", encoding="utf-8") as f:
+                        cached_report = json.load(f)
+                    return jsonify({"status": "ok", "data": cached_report, "cached": True})
+                except Exception as e:
+                    logger.warning(f"Failed to read walk-forward cache: {e}")
+
+        # Extract parameters (from query params or JSON body)
+        if request.method == "POST":
+            body = request.get_json(silent=True) or {}
+        else:
+            body = request.args
+
+        months = int(body.get("months", 6))
+        months = max(1, min(12, months))
+        initial_capital = float(body.get("initial_capital", 100000.0))
+        risk_profile = str(body.get("risk_profile", "BALANCED")).upper()
+        enable_cognigraph = str(body.get("enable_cognigraph", "true")).lower() in ("true", "1", "yes")
+        enable_scale_out = str(body.get("enable_scale_out", "true")).lower() in ("true", "1", "yes")
+
+        results = run_walk_forward_simulation(
+            months=months,
+            initial_capital=initial_capital,
+            risk_profile=risk_profile,
+            enable_cognigraph=enable_cognigraph,
+            enable_scale_out=enable_scale_out,
+            history_dir=history_dir,
+        )
+        return jsonify({"status": "ok", "data": results, "cached": False})
+    except Exception as e:
+        logger.error(f"/api/simulation/walk-forward failed: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/institutional-radar", methods=["GET"])
 def get_institutional_radar():
     """

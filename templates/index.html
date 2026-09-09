@@ -1123,6 +1123,114 @@
                     <span id="trajectory-export-status" style="font-size:0.78rem;color:#34d399;margin-left:auto;display:none;"></span>
                 </div>
             </div>
+            <!-- Panel 4: Multi-Month Historical Walk-Forward Simulation (6 Months) -->
+            <div class="card animate-in" style="margin-bottom:32px;" id="walk-forward-simulation-section">
+                <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="section-title__icon">📈</span>
+                        <span>Multi-Month Historical Walk-Forward Simulation (6 Months)</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <button type="button" class="btn btn-primary" id="btn-run-walk-forward" style="padding:5px 12px;font-size:0.78rem;display:flex;align-items:center;gap:6px;">
+                            <span>🚀</span>
+                            <span>Run Walk-Forward Simulation</span>
+                        </button>
+                        <span id="walk-forward-status-badge" style="font-size:0.70rem;font-weight:700;padding:3px 8px;border-radius:6px;background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3);">
+                            126 SESSIONS
+                        </span>
+                    </div>
+                </div>
+
+                <div style="font-size:0.80rem;color:var(--text-secondary,#cbd5e1);margin-bottom:16px;line-height:1.45;">
+                    Replays 6 months of historical sessions through all 7 specialist dimensions, CogniGraph causal regime memory, and multi-persona debate committees with 3-tier lot scale-out execution.
+                </div>
+
+                <!-- 6-Metric Executive Scorecard -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;" id="wf-metrics-grid">
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Cumulative Return</div>
+                        <div id="wf-metric-return" style="font-size:1.35rem;font-weight:700;color:#34d399;">--%</div>
+                    </div>
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Net Profit</div>
+                        <div id="wf-metric-pnl" style="font-size:1.35rem;font-weight:700;color:#60a5fa;">₹--</div>
+                    </div>
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Sharpe Ratio</div>
+                        <div id="wf-metric-sharpe" style="font-size:1.35rem;font-weight:700;color:#a78bfa;">--</div>
+                    </div>
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Sortino Ratio</div>
+                        <div id="wf-metric-sortino" style="font-size:1.35rem;font-weight:700;color:#38bdf8;">--</div>
+                    </div>
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Max Drawdown</div>
+                        <div id="wf-metric-drawdown" style="font-size:1.35rem;font-weight:700;color:#f87171;">--%</div>
+                    </div>
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);text-align:center;">
+                        <div style="font-size:0.70rem;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em;">Win Rate</div>
+                        <div id="wf-metric-winrate" style="font-size:1.35rem;font-weight:700;color:#fbbf24;">--%</div>
+                    </div>
+                </div>
+
+                <!-- SVG Equity Curve Chart -->
+                <div style="margin-bottom:20px;padding:14px;border-radius:8px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);">
+                    <div style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+                        <span>📊 Portfolio Equity Curve (₹100k Capital Base)</span>
+                        <span id="wf-chart-summary" style="font-size:0.70rem;color:var(--text-muted);">126 Trading Sessions</span>
+                    </div>
+                    <div id="wf-equity-chart-container" style="width:100%;height:160px;position:relative;">
+                        <!-- Rendered dynamically by script.js -->
+                    </div>
+                </div>
+
+                <!-- Dual Tables: Monthly Breakdown + Regime Performance -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;">
+                    <!-- Monthly Performance Table -->
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);">
+                        <div style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">
+                            📅 Monthly Performance Breakdown
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%;font-size:0.75rem;border-collapse:collapse;" id="wf-monthly-table">
+                                <thead>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.1);color:var(--text-muted);text-align:left;">
+                                        <th style="padding:4px 6px;">Month</th>
+                                        <th style="padding:4px 6px;">Trades</th>
+                                        <th style="padding:4px 6px;">Win Rate</th>
+                                        <th style="padding:4px 6px;text-align:right;">P&amp;L (₹)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wf-monthly-table-body">
+                                    <tr><td colspan="4" style="padding:8px 6px;color:var(--text-muted);text-align:center;">Loading monthly breakdown...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Regime Performance Table -->
+                    <div style="padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);">
+                        <div style="font-size:0.74rem;font-weight:700;text-transform:uppercase;color:#94a3b8;margin-bottom:8px;">
+                            🕸️ Top CogniGraph Regimes
+                        </div>
+                        <div style="overflow-x:auto;">
+                            <table style="width:100%;font-size:0.75rem;border-collapse:collapse;" id="wf-regime-table">
+                                <thead>
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.1);color:var(--text-muted);text-align:left;">
+                                        <th style="padding:4px 6px;">Regime Signature</th>
+                                        <th style="padding:4px 6px;">Trades</th>
+                                        <th style="padding:4px 6px;">Win Rate</th>
+                                        <th style="padding:4px 6px;text-align:right;">P&amp;L (₹)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wf-regime-table-body">
+                                    <tr><td colspan="4" style="padding:8px 6px;color:var(--text-muted);text-align:center;">Loading regime breakdown...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
     </main>
@@ -1142,7 +1250,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=29.0"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=30.0"></script>
 
 
 
