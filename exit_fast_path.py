@@ -5,6 +5,7 @@ and 15:15 IST pre-close cutoffs without waiting for an LLM call.
 """
 
 import os
+import re
 import time
 import logging
 import concurrent.futures
@@ -25,6 +26,20 @@ import yf_cache
 
 logger = logging.getLogger("ExitFastPath")
 TIMEZONE = pytz.timezone("Asia/Kolkata")
+
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely convert any dirty, currency-prefixed, or comma-formatted value to float with zero-crash guarantee."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        s = str(val).strip().replace(",", "")
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", s)
+        return float(m.group(0)) if m else default
+    except (ValueError, TypeError, Exception):
+        return default
 
 
 def is_expiry_day() -> bool:
@@ -119,12 +134,12 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
     now_ist = datetime.now(TIMEZONE)
     trade_type = str(position.get("trade_type", "INTRADAY")).upper()
     side = str(position.get("position_side", "BUY_CE")).upper()
-    entry_spot = float(position.get("entry_spot") or 0)
-    current_spot = float(live_signals.get("nifty_spot") or 0)
-    vix_change_pct = float(live_signals.get("india_vix_change_pct") or 0)
+    entry_spot = _safe_float(position.get("entry_spot"), 0.0)
+    current_spot = _safe_float(live_signals.get("nifty_spot"), 0.0)
+    vix_change_pct = _safe_float(live_signals.get("india_vix_change_pct"), 0.0)
     
-    entry_premium = float(position.get("entry_premium") or 0)
-    current_premium = float(position.get("current_premium") or 0)
+    entry_premium = _safe_float(position.get("entry_premium"), 0.0)
+    current_premium = _safe_float(position.get("current_premium"), 0.0)
 
     # 1. 15:15 IST Mandatory Pre-Close Square-Off for Intraday Trades
     if trade_type == "INTRADAY":
@@ -141,7 +156,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
             }
 
     # 2. Extreme Volatility / VIX Shock (>= 8.0% spike or VIX > 18 with 5% spike)
-    current_vix = float(live_signals.get("india_vix") or 14.0)
+    current_vix = _safe_float(live_signals.get("india_vix"), 14.0)
     is_vix_shock = (vix_change_pct >= 8.0) or (current_vix >= 18.0 and vix_change_pct >= 5.0)
     if is_vix_shock:
         return {
@@ -240,7 +255,7 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
     # 6. PCR Extreme — Option Chain Sentiment Warning
     # PCR < 0.70: heavy call writing = bearish market structure (resistance ahead for bulls)
     # PCR > 1.50: heavy put writing = bullish market structure (support for bulls, resistance for bears)
-    pcr = float(live_signals.get("pcr") or 1.05)
+    pcr = _safe_float(live_signals.get("pcr"), 1.05)
     is_bullish_trade = side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"]
     is_bearish_trade = side in ["BUY_PE", "SHORT_FUTURES", "SHORT_CE"]
 
@@ -280,40 +295,107 @@ def evaluate_fast_path(position: dict[str, Any], live_signals: dict[str, Any]) -
     top_oi_put = live_signals.get("top_oi_put_strike")
 
     if current_spot > 0 and top_oi_call and is_bullish_trade:
-        gap_to_call_wall = float(top_oi_call) - current_spot
-        if 0 < gap_to_call_wall <= 50:
-            return {
-                "verdict": "TRAIL_SL_TIGHT",
-                "action": f"Spot is {gap_to_call_wall:.0f}pts from max OI Call wall at {top_oi_call}. Tighten stop — resistance zone ahead.",
-                "confidence": 80,
-                "urgency": "MEDIUM",
-                "engine": "Deterministic Fast-Path (OI Resistance Wall)",
-                "reasoning": (
-                    f"Current NIFTY spot ({current_spot}) is only {gap_to_call_wall:.0f}pts away from the "
-                    f"highest Call OI strike at {top_oi_call}, which acts as a strong resistance wall. "
-                    f"Bullish momentum likely to stall here. Trail stop-loss to protect gains."
-                ),
-                "trailing_sl": round(current_spot * 0.9985, 1),
-                "is_fast_path": True,
-            }
+        top_call_val = _safe_float(top_oi_call, 0.0)
+        if top_call_val > 0:
+            gap_to_call_wall = top_call_val - current_spot
+            if 0 < gap_to_call_wall <= 50:
+                return {
+                    "verdict": "TRAIL_SL_TIGHT",
+                    "action": f"Spot is {gap_to_call_wall:.0f}pts from max OI Call wall at {top_oi_call}. Tighten stop — resistance zone ahead.",
+                    "confidence": 80,
+                    "urgency": "MEDIUM",
+                    "engine": "Deterministic Fast-Path (OI Resistance Wall)",
+                    "reasoning": (
+                        f"Current NIFTY spot ({current_spot}) is only {gap_to_call_wall:.0f}pts away from the "
+                        f"highest Call OI strike at {top_oi_call}, which acts as a strong resistance wall. "
+                        f"Bullish momentum likely to stall here. Trail stop-loss to protect gains."
+                    ),
+                    "trailing_sl": round(current_spot * 0.9985, 1),
+                    "is_fast_path": True,
+                }
 
     if current_spot > 0 and top_oi_put and is_bearish_trade:
-        gap_to_put_wall = current_spot - float(top_oi_put)
-        if 0 < gap_to_put_wall <= 50:
-            return {
-                "verdict": "TRAIL_SL_TIGHT",
-                "action": f"Spot is {gap_to_put_wall:.0f}pts from max OI Put wall at {top_oi_put}. Tighten stop — support zone ahead.",
-                "confidence": 80,
-                "urgency": "MEDIUM",
-                "engine": "Deterministic Fast-Path (OI Support Wall)",
-                "reasoning": (
-                    f"Current NIFTY spot ({current_spot}) is only {gap_to_put_wall:.0f}pts above the "
-                    f"highest Put OI strike at {top_oi_put}, which acts as a strong support wall. "
-                    f"Bearish momentum likely to stall here. Trail stop-loss to protect gains."
-                ),
-                "trailing_sl": round(current_spot * 1.0015, 1),
-                "is_fast_path": True,
-            }
+        top_put_val = _safe_float(top_oi_put, 0.0)
+        if top_put_val > 0:
+            gap_to_put_wall = current_spot - top_put_val
+            if 0 < gap_to_put_wall <= 50:
+                return {
+                    "verdict": "TRAIL_SL_TIGHT",
+                    "action": f"Spot is {gap_to_put_wall:.0f}pts from max OI Put wall at {top_oi_put}. Tighten stop — support zone ahead.",
+                    "confidence": 80,
+                    "urgency": "MEDIUM",
+                    "engine": "Deterministic Fast-Path (OI Support Wall)",
+                    "reasoning": (
+                        f"Current NIFTY spot ({current_spot}) is only {gap_to_put_wall:.0f}pts above the "
+                        f"highest Put OI strike at {top_oi_put}, which acts as a strong support wall. "
+                        f"Bearish momentum likely to stall here. Trail stop-loss to protect gains."
+                    ),
+                    "trailing_sl": round(current_spot * 1.0015, 1),
+                    "is_fast_path": True,
+                }
+
+    # 8. Contrarian Bull Trap — Retail Euphoria vs Institutional FII Selling
+    contrarian_warn = str(
+        live_signals.get("contrarian_warning")
+        or live_signals.get("contrarian_alert")
+        or (live_signals.get("social_sentiment", {}) or {}).get("contrarian_warning")
+        or ""
+    ).upper()
+
+    if "BULL TRAP" in contrarian_warn and is_bullish_trade:
+        prem_gain = 0.0
+        if entry_premium > 0 and current_premium > 0:
+            is_short = side in ["SHORT_CE", "SHORT_PE", "SHORT_FUTURES"]
+            prem_gain = ((entry_premium - current_premium) / entry_premium) * 100 if is_short else ((current_premium - entry_premium) / entry_premium) * 100
+        spot_gain = ((current_spot - entry_spot) / entry_spot) * 100 if entry_spot > 0 else 0.0
+
+        is_in_profit = prem_gain >= 15.0 or spot_gain >= 0.15
+        target_verdict = "PARTIAL_BOOK_50" if is_in_profit else "TRAIL_SL_TIGHT"
+        return {
+            "verdict": target_verdict,
+            "action": (
+                "CONTRARIAN ALERT: Book 50% profits immediately and trail SL tight." if is_in_profit
+                else "CONTRARIAN ALERT: Tighten stop-loss immediately. Do NOT add to long positions."
+            ),
+            "confidence": 85,
+            "urgency": "HIGH",
+            "engine": "Deterministic Fast-Path (Contrarian Bull Trap)",
+            "reasoning": (
+                "Contrarian Bull Trap detected: Retail euphoria on social channels clashes with institutional "
+                "FII net cash selling. Smart money is distributing into retail liquidity. Protect capital."
+            ),
+            "trailing_sl": round(current_spot * 0.9985, 1) if current_spot > 0 else round(entry_spot, 1),
+            "is_fast_path": True,
+            "contrarian_alert": "BULL_TRAP_RISK",
+        }
+
+    # 9. Contrarian Bear Trap — Retail Panic vs Institutional FII Buying
+    if "BEAR TRAP" in contrarian_warn and is_bearish_trade:
+        prem_gain = 0.0
+        if entry_premium > 0 and current_premium > 0:
+            is_short = side in ["SHORT_CE", "SHORT_PE", "SHORT_FUTURES"]
+            prem_gain = ((entry_premium - current_premium) / entry_premium) * 100 if is_short else ((current_premium - entry_premium) / entry_premium) * 100
+        spot_gain = ((entry_spot - current_spot) / entry_spot) * 100 if entry_spot > 0 else 0.0
+
+        is_in_profit = prem_gain >= 15.0 or spot_gain >= 0.15
+        target_verdict = "PARTIAL_BOOK_50" if is_in_profit else "TRAIL_SL_TIGHT"
+        return {
+            "verdict": target_verdict,
+            "action": (
+                "CONTRARIAN ALERT: Book 50% profits on puts immediately and trail SL tight." if is_in_profit
+                else "CONTRARIAN ALERT: Tighten stop-loss immediately. Watch for sharp short covering squeeze."
+            ),
+            "confidence": 85,
+            "urgency": "HIGH",
+            "engine": "Deterministic Fast-Path (Contrarian Bear Trap)",
+            "reasoning": (
+                "Contrarian Bear Trap detected: Retail panic and put buying on social channels clash with aggressive "
+                "institutional FII buying. High probability of violent short squeeze trapping late retail bears."
+            ),
+            "trailing_sl": round(current_spot * 1.0015, 1) if current_spot > 0 else round(entry_spot, 1),
+            "is_fast_path": True,
+            "contrarian_alert": "BEAR_TRAP_RISK",
+        }
 
     return None
 
@@ -330,10 +412,14 @@ def generate_rule_based_fallback(
     """
     trade_type = str(position.get("trade_type", "INTRADAY")).upper()
     side = str(position.get("position_side", "BUY_CE")).upper()
-    entry_spot = float(position.get("entry_spot") or live_signals.get("nifty_spot") or 24200)
-    current_spot = float(live_signals.get("nifty_spot") or entry_spot)
-    entry_premium = float(position.get("entry_premium") or 0)
-    current_premium = float(position.get("current_premium") or 0)
+    entry_spot = _safe_float(position.get("entry_spot") or live_signals.get("nifty_spot"), 24200.0)
+    if entry_spot <= 0:
+        entry_spot = 24200.0
+    current_spot = _safe_float(live_signals.get("nifty_spot"), entry_spot)
+    if current_spot <= 0:
+        current_spot = entry_spot
+    entry_premium = _safe_float(position.get("entry_premium"), 0.0)
+    current_premium = _safe_float(position.get("current_premium"), 0.0)
 
     spot_change_pct = ((current_spot - entry_spot) / entry_spot) * 100 if entry_spot > 0 else 0.0
     pts_diff = round(current_spot - entry_spot, 1)
@@ -344,6 +430,13 @@ def generate_rule_based_fallback(
     # Heavyweight pulse
     hw_bullish = sum(1 for s in heavyweights.values() if s.get("change_pct", 0) > 0.3)
     hw_bearish = sum(1 for s in heavyweights.values() if s.get("change_pct", 0) < -0.3)
+
+    contrarian_warn = str(
+        live_signals.get("contrarian_warning")
+        or live_signals.get("contrarian_alert")
+        or (live_signals.get("social_sentiment", {}) or {}).get("contrarian_warning")
+        or ""
+    ).upper()
 
     # 1. Target 2 / Large Move (+0.50% or higher)
     if favorable_move >= 0.50:
@@ -395,17 +488,49 @@ def generate_rule_based_fallback(
     # 5. Normal trend continuation
     else:
         if (is_bullish_trade and hw_bullish >= 3) or (not is_bullish_trade and hw_bearish >= 3):
-            verdict = "HOLD_AND_RIDE"
-            action = "Maintain position. Heavyweights strongly aligned with trade direction."
-            confidence = 80
-            trailing_sl = round(entry_spot * 0.998 if is_bullish_trade else entry_spot * 1.002, 1)
-            reason = "Constituent heavyweights are supporting the directional momentum."
+            # Guard against contrarian trap even if heavyweights appear aligned
+            if ("BULL TRAP" in contrarian_warn and is_bullish_trade) or ("BEAR TRAP" in contrarian_warn and not is_bullish_trade):
+                verdict = "TRAIL_SL_TIGHT"
+                action = "Contrarian Trap Warning: Tighten stop-loss immediately despite heavyweight alignment."
+                confidence = 75
+                trailing_sl = round(entry_spot * 0.9985 if is_bullish_trade else entry_spot * 1.0015, 1)
+                reason = "Contrarian trap warning overrides trend continuation. Protect capital against institutional divergence."
+            else:
+                verdict = "HOLD_AND_RIDE"
+                action = "Maintain position. Heavyweights strongly aligned with trade direction."
+                confidence = 80
+                trailing_sl = round(entry_spot * 0.998 if is_bullish_trade else entry_spot * 1.002, 1)
+                reason = "Constituent heavyweights are supporting the directional momentum."
         else:
             verdict = "TRAIL_SL_TIGHT"
             action = "Hold with tightened stop-loss. Momentum is consolidating."
             confidence = 72
             trailing_sl = round(entry_spot * 0.9985 if is_bullish_trade else entry_spot * 1.0015, 1)
             reason = "Market is in range-bound consolidation. Maintain tight risk controls."
+
+    cost_str = f"{entry_spot:,.0f}" if entry_spot > 0 else "entry cost"
+    trail_str = f"{trailing_sl:,.0f}" if trailing_sl > 0 else ("key support" if is_bullish_trade else "key resistance")
+    if verdict in ["PARTIAL_BOOK_50", "PARTIAL_BOOK_70", "TRAIL_SL_TO_COST", "TRAIL_SL_TIGHT"]:
+        pct = "70%" if verdict == "PARTIAL_BOOK_70" else "50%"
+        rem_pct = "30%" if verdict == "PARTIAL_BOOK_70" else "25%"
+        runner_pct = "remaining" if verdict == "PARTIAL_BOOK_70" else "25%"
+        scale_plan = {
+            "tier_1": f"Book {pct} lots at market to lock in gains (Capital Defender lock).",
+            "tier_2": f"Move stop-loss on {rem_pct} lots strictly to {cost_str} for breakeven capital defense.",
+            "tier_3": f"Trail {runner_pct} lots at {trail_str} for runner continuation (Momentum Hawk runner).",
+        }
+    elif verdict in ["FULL_EXIT", "PRE_CLOSE_EXIT", "EMERGENCY_EXIT"]:
+        scale_plan = {
+            "tier_1": "Exit 100% open lots immediately at market to halt structural loss.",
+            "tier_2": "Cancel all open broker orders in trading terminal.",
+            "tier_3": "Do not initiate re-entry until market structure confirms reversal.",
+        }
+    else:  # HOLD_AND_RIDE
+        scale_plan = {
+            "tier_1": f"Hold full position while spot remains strictly favorable above {trail_str}.",
+            "tier_2": "Prepare to scale out 50% lots immediately if spot tests next psychological resistance.",
+            "tier_3": f"Maintain dynamic trailing stop {trail_str} on 15-minute bar closes.",
+        }
 
     return {
         "verdict": verdict,
@@ -415,6 +540,7 @@ def generate_rule_based_fallback(
         "engine": "Rule-Based Deterministic Engine (AI Offline)",
         "reasoning": reason,
         "trailing_sl": trailing_sl,
+        "scale_out_plan": scale_plan,
         "heavyweight_alignment": f"{hw_bullish} Bullish / {hw_bearish} Bearish",
         "favorable_move_pct": round(favorable_move, 2),
         "is_fallback": True,

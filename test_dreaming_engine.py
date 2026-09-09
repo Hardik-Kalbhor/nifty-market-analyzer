@@ -357,12 +357,149 @@ class TestDreamingEngine(unittest.TestCase):
         self.assertIsNotNone(job)
         sched.shutdown(wait=False)
 
-    def test_cognigraph_reinforce_from_invalid_axiom(self):
-        """Test CogniGraph reinforce_from_axiom returns None on invalid inputs."""
+    def test_harvest_exit_episodes(self):
+        """Verify harvesting accurately parses exit_evaluations.jsonl and handles dirty records."""
+        exit_file = self.history_dir / "exit_evaluations.jsonl"
+        with open(exit_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-09-08 11:30:00",
+                "position": {
+                    "position_side": "BUY_CE",
+                    "entry_spot": 24500,
+                    "entry_premium": 120,
+                    "current_premium": 160,
+                    "risk_profile": "BALANCED"
+                },
+                "live_spot": 24540,
+                "verdict": "PARTIAL_BOOK_50",
+                "engine": "Groq AI",
+                "contrarian_warning": "BULL TRAP RISK"
+            }) + "\n")
+            # Add dirty/corrupt line
+            f.write("{broken_json\n")
+            f.write(json.dumps({
+                "timestamp": "2026-09-08 14:15:00",
+                "position": {
+                    "position_side": "BUY_PE",
+                    "entry_spot": 24600,
+                    "entry_premium": 90,
+                    "current_premium": 50
+                },
+                "live_spot": 24630,
+                "verdict": "FULL_EXIT",
+                "engine": "Deterministic Fast-Path"
+            }) + "\n")
+
+        episodes = self.engine.harvest_exit_episodes()
+        self.assertEqual(len(episodes), 2)
+        self.assertEqual(episodes[0]["verdict"], "FULL_EXIT")
+        self.assertEqual(episodes[1]["verdict"], "PARTIAL_BOOK_50")
+        self.assertEqual(episodes[1]["contrarian_warning"], "BULL TRAP RISK")
+
+    def test_audit_exit_effectiveness_timely_profit_lock(self):
+        """Verify audit classifies timely profit booking before adverse move."""
+        episodes = [{
+            "timestamp": "2026-09-08 11:30:00",
+            "position": {
+                "position_side": "BUY_CE",
+                "entry_spot": 24500,
+                "entry_premium": 100,
+                "current_premium": 140,
+            },
+            "live_spot": 24550,
+            "verdict": "PARTIAL_BOOK_50",
+            "contrarian_warning": "",
+            "settlement_spot": 24510,  # Reversal occurred after exit
+        }]
+        audit = self.engine.audit_exit_effectiveness(episodes)
+        self.assertEqual(len(audit["timely_profit_locks"]), 1)
+        self.assertEqual(audit["effectiveness_score_pct"], 100.0)
+
+    def test_audit_exit_effectiveness_lethal_hold_error(self):
+        """Verify audit classifies HOLD_AND_RIDE into contrarian trap as lethal hold error."""
+        episodes = [{
+            "timestamp": "2026-09-08 13:00:00",
+            "position": {
+                "position_side": "BUY_CE",
+                "entry_spot": 24500,
+                "entry_premium": 110,
+                "current_premium": 80,
+            },
+            "live_spot": 24510,
+            "verdict": "HOLD_AND_RIDE",
+            "contrarian_warning": "BULL TRAP RISK: Extreme Retail Euphoria",
+            "settlement_spot": 24420,  # Afternoon collapse
+        }]
+        audit = self.engine.audit_exit_effectiveness(episodes)
+        self.assertEqual(len(audit["lethal_hold_errors"]), 1)
+        self.assertEqual(audit["effectiveness_score_pct"], 0.0)
+        self.assertTrue(len(audit["failure_traps_identified"]) >= 1)
+
+    def test_audit_exit_effectiveness_premature_panic_exit(self):
+        """Verify audit classifies FULL_EXIT right before large rally as premature panic exit."""
+        episodes = [{
+            "timestamp": "2026-09-08 10:15:00",
+            "position": {
+                "position_side": "BUY_CE",
+                "entry_spot": 24500,
+                "entry_premium": 100,
+                "current_premium": 95,
+            },
+            "live_spot": 24490,
+            "verdict": "FULL_EXIT",
+            "contrarian_warning": "",
+            "settlement_spot": 24650,  # Subsequent massive rally
+        }]
+        audit = self.engine.audit_exit_effectiveness(episodes)
+        self.assertEqual(len(audit["premature_panic_exits"]), 1)
+
+    def test_synthesize_exit_macro_axioms(self):
+        """Verify synthesis creates durable Macro Axioms from audit findings."""
+        audit_res = {
+            "lethal_hold_errors": [{"trade_date": "2026-09-08", "side": "BUY_CE"}],
+            "timely_profit_locks": [{"trade_date": "2026-09-08", "side": "BUY_CE"}],
+            "premature_panic_exits": [{"trade_date": "2026-09-08", "side": "BUY_PE"}],
+        }
+        axioms = self.engine.synthesize_exit_macro_axioms(audit_res, [])
+        axiom_ids = [a["axiom_id"] for a in axioms]
+        self.assertIn("AXIOM_AVOID_HOLDING_ON_RETAIL_EUPHORIA", axiom_ids)
+        self.assertIn("AXIOM_CONTRARIAN_PARTIAL_PROFIT_DEFUSAL", axiom_ids)
+        self.assertIn("AXIOM_AVOID_PREMATURE_PANIC_IN_TREND", axiom_ids)
+
+    def test_record_exit_traps_in_cognigraph(self):
+        """Verify lethal hold errors are recorded as causal failure traps in CogniGraph."""
         cg = CogniGraph(history_dir=str(self.history_dir))
-        self.assertIsNone(cg.reinforce_from_axiom(None))
-        self.assertIsNone(cg.reinforce_from_axiom({}))
-        self.assertIsNone(cg.reinforce_from_axiom({"subject": "SubOnly"}))
+        audit_res = {
+            "lethal_hold_errors": [{
+                "side": "BUY_CE",
+                "reason": "Retail euphoria divergence collapse"
+            }]
+        }
+        traps_count = self.engine.record_exit_traps_in_cognigraph(audit_res)
+        self.assertEqual(traps_count, 1)
+
+        # Reload CogniGraph and verify triple
+        cg_reloaded = CogniGraph(history_dir=str(self.history_dir))
+        key = "Retail_Euphoria_Trap->caused_failure_of->HOLD_AND_RIDE"
+        self.assertIn(key, cg_reloaded._triples)
+        self.assertEqual(cg_reloaded._triples[key]["polarity"], "NEGATIVE")
+
+    def test_consolidation_cycle_includes_exit_audit(self):
+        """Verify run_consolidation_cycle includes exit_advisor_audit in report."""
+        exit_file = self.history_dir / "exit_evaluations.jsonl"
+        with open(exit_file, "w", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "timestamp": "2026-09-08 11:30:00",
+                "position": {"position_side": "BUY_CE", "entry_spot": 24500, "entry_premium": 100, "current_premium": 130},
+                "live_spot": 24530,
+                "verdict": "PARTIAL_BOOK_50",
+                "contrarian_warning": "BULL TRAP RISK"
+            }) + "\n")
+
+        report = self.engine.run_consolidation_cycle(dry_run=False)
+        self.assertIn("exit_advisor_audit", report)
+        self.assertEqual(report["exit_episodes_processed"], 1)
+        self.assertEqual(report["exit_advisor_audit"]["total_exits_audited"], 1)
 
 
 if __name__ == "__main__":

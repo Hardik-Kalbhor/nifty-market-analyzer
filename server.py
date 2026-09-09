@@ -658,6 +658,8 @@ def exit_advisor():
             "live_spot": market_signals.get("nifty_spot"),
             "verdict": result.get("verdict"),
             "engine": result.get("engine"),
+            "contrarian_warning": (result.get("social_sentiment") or {}).get("contrarian_warning", ""),
+            "cognigraph_regime": result.get("cognigraph_regime_precedent", ""),
             "latency_ms": elapsed_ms
         })
 

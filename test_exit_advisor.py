@@ -219,6 +219,80 @@ class TestExitAdvisor(unittest.TestCase):
         self.assertTrue(resolved.get("conflict_resolved"), "conflict_resolved flag must be True when overridden")
         print(f"✅ Test 9 Passed: Conflict Resolution overrode HOLD_AND_RIDE → {resolved['verdict']}")
 
+    def test_fast_path_contrarian_bull_trap(self):
+        """Test 10: Retail Euphoria + FII Selling (Bull Trap) + Profitable BUY_CE triggers PARTIAL_BOOK_50."""
+        position = {
+            "trade_type": "INTRADAY",
+            "position_side": "BUY_CE",
+            "entry_spot": 24200,
+            "entry_premium": 100,
+            "current_premium": 125,  # +25% profit
+        }
+        live_signals = {
+            "nifty_spot": 24260,
+            "india_vix": 13.0,
+            "contrarian_warning": "CONTRARIAN BULL TRAP RISK: Retail euphoria (+65/100) clashes with FII selling (-2,400 Cr)",
+        }
+        res = evaluate_fast_path(position, live_signals)
+        self.assertIsNotNone(res, "Contrarian bull trap must trigger fast-path")
+        self.assertEqual(res["verdict"], "PARTIAL_BOOK_50")
+        self.assertIn("Contrarian Bull Trap", res["engine"])
+        print(f"✅ Test 10 Passed: Fast-Path Contrarian Bull Trap triggered {res['verdict']}")
+
+    def test_fast_path_contrarian_bear_trap(self):
+        """Test 11: Retail Panic + FII Buying (Bear Trap) + Profitable BUY_PE triggers PARTIAL_BOOK_50."""
+        position = {
+            "trade_type": "INTRADAY",
+            "position_side": "BUY_PE",
+            "entry_spot": 24300,
+            "entry_premium": 110,
+            "current_premium": 135,  # +22.7% profit
+        }
+        live_signals = {
+            "nifty_spot": 24240,
+            "india_vix": 14.5,
+            "contrarian_warning": "CONTRARIAN BEAR TRAP RISK: Retail panic (-55/100) clashes with FII buying (+1,800 Cr)",
+        }
+        res = evaluate_fast_path(position, live_signals)
+        self.assertIsNotNone(res, "Contrarian bear trap must trigger fast-path")
+        self.assertEqual(res["verdict"], "PARTIAL_BOOK_50")
+        self.assertIn("Contrarian Bear Trap", res["engine"])
+        print(f"✅ Test 11 Passed: Fast-Path Contrarian Bear Trap triggered {res['verdict']}")
+
+    def test_contrarian_guardrail_clamp_and_prompt_enrichment(self):
+        """Test 12: Contrarian guardrail clamps HOLD_AND_RIDE to TRAIL_SL_TIGHT & prompt includes CogniGraph/Social."""
+        from exit_analyzer import build_exit_prompt_context
+
+        # 1. Test Contrarian Guardrail Clamp
+        raw_output = {
+            "verdict": "HOLD_AND_RIDE",
+            "confidence": 80,
+            "trailing_sl": 24150,
+            "reasoning": "Holding trend."
+        }
+        pos = {"position_side": "BUY_CE", "entry_spot": 24180}
+        grounded = _validate_and_ground_output(
+            raw_output, live_spot=24200, entry_spot=24180, position=pos,
+            contrarian_warning="CONTRARIAN BULL TRAP RISK: Retail euphoria clashes with heavy FII selling"
+        )
+        self.assertEqual(grounded["verdict"], "TRAIL_SL_TIGHT")
+        self.assertIn("Contrarian Trap Guardrail", grounded["reasoning"])
+
+        # 2. Test Prompt Context Enrichment
+        prompt = build_exit_prompt_context(
+            position=pos,
+            live_signals={"nifty_spot": 24200, "india_vix": 13.5},
+            heavyweights={},
+            news_items=[],
+            social_sentiment={"retail_mood": "EUPHORIC / EXTREME GREED", "retail_sentiment_score": 60, "contrarian_warning": "BULL TRAP"},
+            cognigraph_context="Active Causal Regime: VIX_MOD|FII_BEAR",
+        )
+        self.assertIn("RETAIL SOCIAL SENTIMENT & CONTRARIAN TRAP SIGNALS", prompt)
+        self.assertIn("COGNIGRAPH CAUSAL REGIME PRECEDENTS & HISTORICAL TRAPS", prompt)
+        self.assertIn("7 specialist dimensions", prompt)
+        print("✅ Test 12 Passed: Contrarian Guardrail clamped HOLD → TRAIL_SL_TIGHT & Prompt Context verified")
+
 
 if __name__ == "__main__":
     unittest.main()
+

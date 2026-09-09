@@ -20,12 +20,26 @@ import concurrent.futures
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_float(val: Any, default: float = 0.0) -> float:
+    """Safely parse float from string, handling currency, commas, and signs."""
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    try:
+        cleaned = re.sub(r"[^\d.-]", "", str(val).strip())
+        return float(cleaned) if cleaned else default
+    except Exception:
+        return default
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -690,7 +704,7 @@ Rules:
 - BALANCED trader: lean towards Tactical Manager (favour PARTIAL_BOOK_50 and TRAIL_SL_TO_COST).
 - CONSERVATIVE trader: give veto power to Capital Guardian (favour TRAIL_SL_TIGHT or FULL_EXIT if theta or resistance is high).
 - Trailing SL must be on the CORRECT side of spot: strictly BELOW spot for BUY_CE/Longs, strictly ABOVE spot for BUY_PE/Shorts. Within 1.5% of live NIFTY spot.
-- Provide a concrete, lot-by-lot action instruction.
+- Provide a concrete, lot-by-lot action instruction and a 3-tier structured scale-out plan (tier_1: rapid profit lock/defense, tier_2: breakeven stop, tier_3: trailing runner).
 
 Output ONLY valid JSON (no markdown, no extra text):
 {
@@ -699,7 +713,12 @@ Output ONLY valid JSON (no markdown, no extra text):
   "trailing_sl": <number: specific spot level for trailing stop loss on correct side of spot>,
   "debate_consensus": "UNANIMOUS" | "MAJORITY" | "SPLIT",
   "confidence_adjustment": <integer, e.g. +5 or -10 or 0>,
-  "judge_rationale": "<2 sentences explaining how the committee verdicts were synthesized against the trader risk profile>"
+  "judge_rationale": "<2 sentences explaining how the committee verdicts were synthesized against the trader risk profile>",
+  "scale_out_plan": {
+    "tier_1": "<specific lot execution for profit booking or risk halving>",
+    "tier_2": "<specific lot execution for breakeven capital defense>",
+    "tier_3": "<specific lot execution for runner / target expansion>"
+  }
 }"""
 
 
@@ -733,6 +752,28 @@ def _build_exit_debate_context(
                 hw_summary.append(f"{d['name']}: {d.get('change_pct', 0):+.2f}%")
     hw_line = " | ".join(hw_summary) if hw_summary else "Heavyweights neutral"
 
+    # Social sentiment & contrarian signals
+    social = live_signals.get("social_sentiment") or stage1_result.get("social_sentiment") or {}
+    social_mood = social.get("retail_mood", "NEUTRAL")
+    social_score = social.get("retail_sentiment_score", 0)
+    social_warn = social.get("contrarian_warning") or live_signals.get("contrarian_warning") or "None"
+    buzz_items = social.get("top_buzz", [])
+    buzz_str = ", ".join(buzz_items[:2]) if buzz_items else "Neutral chatter"
+
+    # CogniGraph precedents
+    cg_precedent = stage1_result.get("cognigraph_regime_precedent") or ""
+    if not cg_precedent:
+        try:
+            from cognigraph import get_cognigraph
+            cg = get_cognigraph()
+            regime = cg.classify_regime(live_signals)
+            traps = cg.get_top_traps(regime)
+            cg_precedent = f"Regime: {regime}"
+            if traps:
+                cg_precedent += f" | Known Trap: {traps[0].get('setup')} -> {traps[0].get('cause')}"
+        except Exception:
+            cg_precedent = "Regime: Normal"
+
     return f"""LIVE POSITION DATA:
 - Trade: {side} ({strike})
 - Entry Spot: {entry_spot} | Current Spot: {current_spot} (Diff: {spot_diff:+.1f} pts)
@@ -747,6 +788,14 @@ LIVE MARKET MICROSTRUCTURE:
 - Call OI Wall (Resistance): {live_signals.get('top_oi_call_strike', 'N/A')}
 - Put OI Floor (Support): {live_signals.get('top_oi_put_strike', 'N/A')}
 - Top Heavyweights: {hw_line}
+
+RETAIL SOCIAL SENTIMENT & CONTRARIAN SIGNALS:
+- Retail Crowd Mood: {social_mood} (Score: {social_score:+d}/100)
+- Contrarian Trap Alert: {social_warn}
+- Social Chatter Buzz: {buzz_str}
+
+COGNIGRAPH CAUSAL REGIME PRECEDENTS:
+- {cg_precedent}
 
 STAGE 1 INITIAL ADVISOR OPINION:
 - Baseline Verdict: {stage1_result.get('verdict', 'HOLD_AND_RIDE')}
@@ -803,6 +852,50 @@ def _determine_exit_consensus(runner: dict, guardian: dict, tactical: dict, risk
         return v_tac, "SPLIT", "3-way split: Balanced trader profile prioritized Tactical Scale-Out Manager."
 
 
+def build_tiered_scale_out_plan(
+    verdict: str,
+    position: dict[str, Any] | None = None,
+    live_spot: float = 0.0,
+    trailing_sl: float = 0.0,
+    consensus: str = "MAJORITY",
+) -> dict[str, str]:
+    """
+    Synthesize a structured 3-tiered lot scale-out plan resolving Defender vs. Momentum Hawk tension:
+      - Tier 1: Rapid Capital De-risking & Profit Lock (Defender priority)
+      - Tier 2: Breakeven Stop Placement & Capital Shield (Tactical priority)
+      - Tier 3: Trailing Trend Runner & Target 2 Expansion (Momentum Hawk priority)
+    """
+    pos = position or {}
+    side = str(pos.get("position_side", "BUY_CE")).upper()
+    is_bullish = side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"]
+    entry_spot = _safe_float(pos.get("entry_spot") or pos.get("entry_price"), default=0.0)
+    trailing_sl = _safe_float(trailing_sl, default=0.0)
+    cost_str = f"{entry_spot:,.0f}" if entry_spot > 0 else "entry cost"
+    trail_str = f"{trailing_sl:,.0f}" if trailing_sl > 0 else ("key support" if is_bullish else "key resistance")
+
+    if verdict in ["PARTIAL_BOOK_50", "PARTIAL_BOOK_70", "TRAIL_SL_TO_COST", "TRAIL_SL_TIGHT"]:
+        pct = "70%" if verdict == "PARTIAL_BOOK_70" else "50%"
+        rem_pct = "30%" if verdict == "PARTIAL_BOOK_70" else "25%"
+        runner_pct = "remaining" if verdict == "PARTIAL_BOOK_70" else "25%"
+        return {
+            "tier_1": f"Book {pct} lots at market to permanently secure accumulated gains (Capital Defender lock).",
+            "tier_2": f"Move stop-loss on {rem_pct} lots strictly to {cost_str} to guarantee zero-risk status.",
+            "tier_3": f"Trail {runner_pct} lots at {trail_str} for trend runner continuation toward Target 2 (Momentum Hawk runner).",
+        }
+    elif verdict in ["FULL_EXIT", "PRE_CLOSE_EXIT", "EMERGENCY_EXIT"]:
+        return {
+            "tier_1": "Exit 100% open lots immediately at market to halt structural loss.",
+            "tier_2": "Cancel all pending limit targets and stop orders on trading broker terminal.",
+            "tier_3": "Do not initiate re-entry until market structure confirms reversal.",
+        }
+    else:  # HOLD_AND_RIDE
+        return {
+            "tier_1": f"Hold full position while spot remains strictly favorable above {trail_str} (Hawk priority).",
+            "tier_2": "Prepare to scale out 50% lots immediately if spot tests next psychological resistance.",
+            "tier_3": f"Maintain dynamic trailing stop {trail_str} on 15-minute bar closes.",
+        }
+
+
 def run_exit_debate(
     stage1_result: dict[str, Any],
     position: dict[str, Any],
@@ -827,10 +920,10 @@ def run_exit_debate(
         logger.warning("[ExitDebate] GROQ_API_KEY not set — skipping exit debate.")
         return stage1_result
 
-    live_spot = float(live_signals.get("nifty_spot") or position.get("entry_spot") or 0)
-    risk_profile = str(position.get("risk_profile", "BALANCED")).upper()
-    side = str(position.get("position_side", "BUY_CE")).upper()
+    side = position.get("position_side", "BUY_CE")
     is_bullish = side in ["BUY_CE", "LONG_FUTURES", "SHORT_PE"]
+    risk_profile = position.get("risk_profile", "BALANCED").upper()
+    live_spot = _safe_float(live_signals.get("nifty_spot"), default=0.0)
 
     logger.info(f"[ExitDebate] Commencing 3-analyst Exit Debate for {side} (Risk: {risk_profile})...")
     t_start = time.time()
@@ -896,6 +989,7 @@ Synthesize the 3 analyst submissions into a final calibrated exit recommendation
         consensus        = judge_res.get("debate_consensus", "MAJORITY")
         conf_adj         = int(judge_res.get("confidence_adjustment", 0))
         judge_rationale  = judge_res.get("judge_rationale", "")
+        scale_out_plan   = judge_res.get("scale_out_plan") if isinstance(judge_res.get("scale_out_plan"), dict) else None
     else:
         final_verdict, consensus, fallback_note = _determine_exit_consensus(
             runner_res, guardian_res, tactical_res, risk_profile
@@ -904,6 +998,16 @@ Synthesize the 3 analyst submissions into a final calibrated exit recommendation
         final_sl = tactical_res.get("suggested_sl") or stage1_result.get("trailing_sl") or live_spot
         conf_adj = +5 if consensus == "UNANIMOUS" else (-10 if consensus == "SPLIT" else 0)
         judge_rationale = f"Gemini Judge offline — {fallback_note}"
+        scale_out_plan = None
+
+    if not scale_out_plan or not isinstance(scale_out_plan, dict) or "tier_1" not in scale_out_plan:
+        scale_out_plan = build_tiered_scale_out_plan(
+            final_verdict,
+            position=position,
+            live_spot=live_spot,
+            trailing_sl=final_sl or live_spot,
+            consensus=consensus,
+        )
 
     orig_conf = int(stage1_result.get("confidence", 75))
     final_conf = max(10, min(95, orig_conf + conf_adj))
@@ -915,6 +1019,7 @@ Synthesize the 3 analyst submissions into a final calibrated exit recommendation
         "trailing_sl": final_sl,
         "confidence": final_conf,
         "debate_consensus": consensus,
+        "scale_out_plan": scale_out_plan,
         "debate": {
             "runner_analyst": {
                 "verdict": runner_res.get("verdict"),
