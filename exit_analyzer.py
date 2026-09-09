@@ -588,14 +588,7 @@ def evaluate_exit_with_ai(
     if contrarian_warning:
         live_signals["contrarian_warning"] = contrarian_warning
 
-    # --- STAGE 1: Fast-Path Deterministic Check ---
-    fast_result = evaluate_fast_path(position, live_signals)
-    if fast_result:
-        fast_result["social_sentiment"] = social_sentiment
-        logger.info(f"⚡ Fast-Path Triggered: {fast_result['verdict']}")
-        return fast_result
-
-    # Ingest CogniGraph Regime Memory
+    # Ingest CogniGraph Regime Memory (compute before fast path for universal context)
     cognigraph_summary = ""
     try:
         from cognigraph import get_cognigraph
@@ -607,6 +600,24 @@ def evaluate_exit_with_ai(
             cognigraph_summary += f" | Known Trap: {traps[0].get('setup')} -> {traps[0].get('cause')}"
     except Exception as e:
         cognigraph_summary = "Regime: Normal"
+
+    # --- STAGE 1: Fast-Path Deterministic Check ---
+    fast_result = evaluate_fast_path(position, live_signals)
+    if fast_result:
+        fast_result["social_sentiment"] = social_sentiment
+        fast_result["cognigraph_regime_precedent"] = cognigraph_summary or "Regime: Fast-Path Safety Intercept"
+        if "dimension_scores" not in fast_result:
+            fast_result["dimension_scores"] = {
+                "greeks_decay": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Fast-path safety rule triggered"},
+                "oi_pcr": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Hard circuit breaker triggered"},
+                "heavyweights": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Pre-empts heavyweight evaluation"},
+                "price_action": {"verdict": fast_result.get("verdict", "EXIT"), "note": fast_result.get("reasoning", "")},
+                "vix_regime": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Risk control"},
+                "macro_global": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Deterministic safety rule"},
+                "social_contrarian": {"verdict": fast_result.get("verdict", "EXIT"), "note": fast_result.get("contrarian_alert", "Neutral")},
+            }
+        logger.info(f"⚡ Fast-Path Triggered: {fast_result['verdict']}")
+        return fast_result
 
     # --- STAGE 2: Heavyweight Constituent Scrape ---
     heavyweights = fetch_heavyweight_stocks()
@@ -721,6 +732,16 @@ def evaluate_exit_with_ai(
     fallback = generate_rule_based_fallback(position, live_signals, heavyweights)
     fallback["heavyweights"] = heavyweights
     fallback["social_sentiment"] = social_sentiment
-    fallback["cognigraph_regime_precedent"] = cognigraph_summary
+    fallback["cognigraph_regime_precedent"] = cognigraph_summary or "Regime: Fallback Safe Mode"
+    if "dimension_scores" not in fallback:
+        fallback["dimension_scores"] = {
+            "greeks_decay": {"verdict": fallback.get("verdict", "HOLD"), "note": "Deterministic rule evaluation"},
+            "oi_pcr": {"verdict": fallback.get("verdict", "HOLD"), "note": "Support/resistance proximity"},
+            "heavyweights": {"verdict": fallback.get("verdict", "HOLD"), "note": fallback.get("heavyweight_alignment", "Neutral")},
+            "price_action": {"verdict": fallback.get("verdict", "HOLD"), "note": f"Favorable move: {fallback.get('favorable_move_pct', 0)}%"},
+            "vix_regime": {"verdict": fallback.get("verdict", "HOLD"), "note": "Range-bound control"},
+            "macro_global": {"verdict": fallback.get("verdict", "HOLD"), "note": "Rule fallback"},
+            "social_contrarian": {"verdict": fallback.get("verdict", "HOLD"), "note": "Contrarian guardrail checked"},
+        }
     return fallback
 
