@@ -755,6 +755,126 @@ def _direction_from_scores(bull: float, bear: float) -> str:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# SOCIAL & RETAIL SENTIMENT MODULE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _compute_social_sentiment(
+    news_items: list[dict] | None,
+    fii_net_cr: float | int | str | None = None
+) -> dict[str, Any]:
+    """
+    Compute retail and social sentiment metrics across Reddit, Telegram, and Twitter.
+    Detects retail euphoria vs panic and flags contrarian traps against institutional positioning.
+    Guaranteed crash-proof against None, dirty strings, and malformed entries.
+    """
+    if not isinstance(news_items, list):
+        return {
+            "retail_sentiment_score": 0,
+            "retail_mood": "NEUTRAL / NO DATA",
+            "sample_count": 0,
+            "contrarian_warning": "",
+            "top_buzz": [],
+            "source_breakdown": {"reddit": 0, "telegram": 0, "twitter": 0},
+        }
+
+    social_items = [
+        item for item in news_items
+        if isinstance(item, dict) and (
+            item.get("category") in ("social_sentiment", "breaking_flash")
+            or any(src in str(item.get("source") or "").lower() for src in ("reddit", "telegram", "twitter", "x.com", "fintwit"))
+        )
+    ]
+
+    if not social_items:
+        return {
+            "retail_sentiment_score": 0,
+            "retail_mood": "NEUTRAL / NO DATA",
+            "sample_count": 0,
+            "contrarian_warning": "",
+            "top_buzz": [],
+            "source_breakdown": {"reddit": 0, "telegram": 0, "twitter": 0},
+        }
+
+    total_bull = 0.0
+    total_bear = 0.0
+    buzz_list: list[str] = []
+    source_counts = {"reddit": 0, "telegram": 0, "twitter": 0}
+
+    for item in social_items:
+        src = str(item.get("source") or "").lower()
+        if "reddit" in src:
+            source_counts["reddit"] += 1
+        elif "telegram" in src:
+            source_counts["telegram"] += 1
+        elif "twitter" in src or "x.com" in src or "fintwit" in src:
+            source_counts["twitter"] += 1
+
+        hl_val = item.get("headline")
+        sn_val = item.get("snippet")
+        hl_clean = str(hl_val).strip() if hl_val is not None else ""
+        sn_clean = str(sn_val).strip() if sn_val is not None else ""
+        text = f"{hl_clean} {sn_clean}".strip()
+
+        bull, bear, _, _ = _score_sentiment(text)
+        total_bull += bull
+        total_bear += bear
+
+        if hl_clean and hl_clean not in buzz_list:
+            buzz_list.append(hl_clean)
+
+    combined_volume = total_bull + total_bear
+    if combined_volume > 0:
+        raw_score = ((total_bull - total_bear) / combined_volume) * 100.0
+    else:
+        raw_score = 0.0
+
+    sentiment_score = max(-100, min(100, int(round(raw_score))))
+
+    # Determine Retail Mood
+    if sentiment_score >= 40:
+        retail_mood = "EUPHORIC / EXTREME GREED"
+    elif sentiment_score >= 15:
+        retail_mood = "BULLISH / OPTIMISTIC"
+    elif sentiment_score <= -40:
+        retail_mood = "PANIC / EXTREME FEAR"
+    elif sentiment_score <= -15:
+        retail_mood = "BEARISH / PESSIMISTIC"
+    else:
+        retail_mood = "NEUTRAL / BALANCED"
+
+    # Coerce fii_net_cr to safe float
+    fii_val: float | None = None
+    if fii_net_cr is not None:
+        try:
+            fii_val = float(fii_net_cr)
+        except (ValueError, TypeError):
+            fii_val = None
+
+    # Contrarian Trap Detection
+    # When retail crowd is euphoric but institutional flows (FII) are dumping, or vice versa
+    contrarian_warning = ""
+    if sentiment_score >= 40 and fii_val is not None and fii_val < -1000:
+        contrarian_warning = (
+            f"CONTRARIAN BULL TRAP RISK: Retail euphoria ({sentiment_score:+d}/100) on social channels "
+            f"clashes with heavy institutional FII cash selling ({fii_val:+,.0f} Cr). High risk of opening gap fading."
+        )
+    elif sentiment_score <= -40 and fii_val is not None and fii_val > 1000:
+        contrarian_warning = (
+            f"CONTRARIAN BEAR TRAP RISK: Retail panic / put buying ({sentiment_score:+d}/100) "
+            f"clashes with aggressive institutional FII buying (+{fii_val:,.0f} Cr). High probability of short squeeze."
+        )
+
+    return {
+        "retail_sentiment_score": sentiment_score,
+        "retail_mood": retail_mood,
+        "sample_count": len(social_items),
+        "contrarian_warning": contrarian_warning,
+        "top_buzz": buzz_list[:5],
+        "source_breakdown": source_counts,
+    }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MAIN ANALYSIS FUNCTION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -766,6 +886,7 @@ def analyze_news(
     india_vix_change_pct: float | None = None,    # e.g. +3.5
     pcr: float | None = None,                     # e.g. 1.15
     global_market_changes: dict[str, float] | None = None,  # {"sp500": +1.2, ...}
+    fii_net_cr: float | None = None,              # e.g. -2450.0
 ) -> dict[str, Any]:
     """
     Main analysis function — fully enhanced version.
@@ -960,6 +1081,15 @@ def analyze_news(
             elif "down" in f.lower():
                 all_bear_factors.append({"text": f, "score": 4.0})
 
+    # ── Social & Retail sentiment ─────────────────
+    social_sentiment = _compute_social_sentiment(news_items, fii_net_cr=fii_net_cr)
+    if social_sentiment.get("contrarian_warning"):
+        warn_msg = social_sentiment["contrarian_warning"]
+        if "BULL TRAP" in warn_msg:
+            all_bear_factors.append({"text": f"⚠️ {warn_msg}", "score": 5.0})
+        elif "BEAR TRAP" in warn_msg:
+            all_bull_factors.append({"text": f"⚠️ {warn_msg}", "score": 5.0})
+
     # ── Event risk ────────────────────────────────
     event_risk = _detect_event_risk(combined_text)
 
@@ -1143,6 +1273,7 @@ def analyze_news(
             "pcr": pcr,
             "global_markets": global_market_changes or {},
         },
+        "social_sentiment": social_sentiment,
         "analysis_timestamp": datetime.now().strftime("%d %b %Y, %I:%M %p IST"),
         "total_news_analyzed": len(news_items),
     }
@@ -1313,6 +1444,14 @@ def _empty_result(reason: str) -> dict[str, Any]:
             "normalization_factor": 1.0,
         },
         "market_signals": {},
+        "social_sentiment": {
+            "retail_sentiment_score": 0,
+            "retail_mood": "NEUTRAL / NO DATA",
+            "sample_count": 0,
+            "contrarian_warning": "",
+            "top_buzz": [],
+            "source_breakdown": {"reddit": 0, "telegram": 0, "twitter": 0},
+        },
         "analysis_timestamp": datetime.now().strftime("%d %b %Y, %I:%M %p IST"),
         "total_news_analyzed": 0,
     }

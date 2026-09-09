@@ -119,11 +119,27 @@ Output ONLY valid JSON (no markdown, no extra text):
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _format_retail_score(val: Any) -> str:
+    """Safely format retail sentiment score with sign (+/-) without format code crashes."""
+    try:
+        if val is None:
+            return "+0"
+        r_int = int(round(float(val)))
+        return f"{r_int:+d}"
+    except (ValueError, TypeError):
+        return "+0"
+
+
 def _build_debate_context(stage1_result: dict, market_signals: dict) -> str:
     """
     Build the shared context block fed to all 3 debate agents AND the judge.
     Keeps it concise — agents only need the key numbers, not the full news dump.
     """
+    if not isinstance(stage1_result, dict):
+        stage1_result = {}
+    if not isinstance(market_signals, dict):
+        market_signals = {}
+
     btst_bias    = stage1_result.get("btst_bias", "NO TRADE")
     prediction   = stage1_result.get("prediction", "FLAT")
     confidence   = stage1_result.get("confidence", 50)
@@ -140,9 +156,30 @@ def _build_debate_context(stage1_result: dict, market_signals: dict) -> str:
     gift    = market_signals.get("gift_nifty_change_pct", 0)
 
     dim_summary = []
-    for name, d in dim_scores.items():
-        if isinstance(d, dict):
-            dim_summary.append(f"  {name}: {d.get('bias','?')} — {d.get('note','')}")
+    if isinstance(dim_scores, dict):
+        for name, d in dim_scores.items():
+            if isinstance(d, dict):
+                dim_summary.append(f"  {name}: {d.get('bias','?')} — {d.get('note','')}")
+
+    # Social & Retail Sentiment
+    social = stage1_result.get("social_sentiment") or market_signals.get("social_sentiment") or {}
+    if not isinstance(social, dict):
+        social = {}
+    social_section = ""
+    sample_count = int(social.get("sample_count") or 0)
+    if sample_count > 0 or social.get("retail_mood"):
+        score_str = _format_retail_score(social.get("retail_sentiment_score"))
+        retail_mood = str(social.get("retail_mood") or "NEUTRAL")
+        contrarian_warning = str(social.get("contrarian_warning") or "").strip()
+        top_buzz = social.get("top_buzz") if isinstance(social.get("top_buzz"), list) else []
+
+        social_section = f"\nSocial & Retail Sentiment (Reddit/Telegram/FinTwit):\n  Retail Mood: {retail_mood} ({score_str}/100 from {sample_count} posts)"
+        if contrarian_warning:
+            social_section += f"\n  ⚠️ {contrarian_warning}"
+        if top_buzz:
+            clean_buzz = [str(b).strip() for b in top_buzz if b]
+            if clean_buzz:
+                social_section += f"\n  Trending Buzz: {'; '.join(clean_buzz[:2])}"
 
     return f"""STAGE 1 ANALYSIS CONTEXT (from 6-agent swarm):
 ─────────────────────────────────────────
@@ -157,7 +194,7 @@ Key Numbers:
   India VIX:   {vix}  (flag if >14.0 — risk elevated)
   PCR:         {pcr}  (>1.25 bullish, <0.80 bearish)
   Max Pain:    {max_pain}
-  F&O Context: {fo_context}
+  F&O Context: {fo_context}{social_section}
 
 Dimension Verdicts:
 {chr(10).join(dim_summary) if dim_summary else "  (not available)"}
@@ -249,6 +286,14 @@ def _run_judge(
     gemini_key: str,
 ) -> dict | None:
     """Run the Gemini synthesis judge. Returns judge output dict or None."""
+    cogni_calib = ""
+    try:
+        from cognigraph import get_cognigraph
+        cg = get_cognigraph()
+        cogni_calib = cg.get_judge_calibration(market_signals, stage1_result)
+    except Exception as cg_err:
+        logger.debug(f"[Debate] CogniGraph judge calibration skipped: {cg_err}")
+
     judge_context = f"""DEBATE RESULTS:
 
 AGGRESSIVE analyst: {json.dumps(aggressive, indent=2)}
@@ -264,6 +309,8 @@ ORIGINAL STAGE 1 ANALYSIS:
   vix:        {market_signals.get('india_vix', 'N/A')}
   max_pain:   {market_signals.get('max_pain', 'N/A')}
   fo_context: {stage1_result.get('fo_expiry_context', 'No expiry today')}
+
+{cogni_calib}
 
 Synthesise the 3 verdicts into a final calibrated trade structure."""
 
@@ -341,15 +388,34 @@ def run_debate(
     logger.info(f"[Debate] Starting 3-agent debate for {btst_bias}...")
     t_start = time.time()
 
-    # Build shared context once (used by all 3 agents)
+    # Build shared base context
     context = _build_debate_context(stage1_result, market_signals)
+
+    # Fetch persona-conditioned CogniGraph memory
+    agg_context = context
+    cons_context = context
+    neut_context = context
+    try:
+        from cognigraph import get_cognigraph
+        cg = get_cognigraph()
+        agg_mem = cg.get_agent_memory("AGGRESSIVE", market_signals, stage1_result)
+        cons_mem = cg.get_agent_memory("CONSERVATIVE", market_signals, stage1_result)
+        neut_mem = cg.get_agent_memory("NEUTRAL", market_signals, stage1_result)
+        if agg_mem:
+            agg_context = f"{context}\n\n{agg_mem}"
+        if cons_mem:
+            cons_context = f"{context}\n\n{cons_mem}"
+        if neut_mem:
+            neut_context = f"{context}\n\n{neut_mem}"
+    except Exception as cg_err:
+        logger.warning(f"[Debate] CogniGraph memory retrieval error: {cg_err}")
 
     # ── Stage 2a: 3 Groq agents in PARALLEL ────────────────────────────────
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            fut_agg  = executor.submit(_run_persona, "AGGRESSIVE",  _AGGRESSIVE_SYSTEM,  context, groq_key)
-            fut_cons = executor.submit(_run_persona, "CONSERVATIVE", _CONSERVATIVE_SYSTEM, context, groq_key)
-            fut_neut = executor.submit(_run_persona, "NEUTRAL",      _NEUTRAL_SYSTEM,      context, groq_key)
+            fut_agg  = executor.submit(_run_persona, "AGGRESSIVE",  _AGGRESSIVE_SYSTEM,  agg_context, groq_key)
+            fut_cons = executor.submit(_run_persona, "CONSERVATIVE", _CONSERVATIVE_SYSTEM, cons_context, groq_key)
+            fut_neut = executor.submit(_run_persona, "NEUTRAL",      _NEUTRAL_SYSTEM,      neut_context, groq_key)
 
             aggressive  = fut_agg.result(timeout=12)
             conservative = fut_cons.result(timeout=12)
@@ -866,10 +932,17 @@ def _build_intraday_debate_context(
     news_sentiment: str,
 ) -> str:
     """Builds a structured prompt for intraday persona agents."""
-    bias_dict = intraday_result.get("intraday_bias", {})
-    pat_dict = intraday_result.get("intraday_pattern", {})
-    phase_dict = intraday_result.get("market_phase", {})
-    vol_dict = intraday_result.get("volatility", {})
+    if not isinstance(intraday_result, dict):
+        intraday_result = {}
+    if not isinstance(market_signals, dict):
+        market_signals = {}
+    if not isinstance(heavyweights, dict):
+        heavyweights = {}
+
+    bias_dict = intraday_result.get("intraday_bias", {}) if isinstance(intraday_result.get("intraday_bias"), dict) else {}
+    pat_dict = intraday_result.get("intraday_pattern", {}) if isinstance(intraday_result.get("intraday_pattern"), dict) else {}
+    phase_dict = intraday_result.get("market_phase", {}) if isinstance(intraday_result.get("market_phase"), dict) else {}
+    vol_dict = intraday_result.get("volatility", {}) if isinstance(intraday_result.get("volatility"), dict) else {}
 
     live_spot = market_signals.get("nifty_spot", 0)
     vix = market_signals.get("india_vix", 12.0)
@@ -880,8 +953,23 @@ def _build_intraday_debate_context(
 
     hw_lines = []
     for sym, d in (heavyweights or {}).items():
-        hw_lines.append(f"  • {d.get('name', sym)}: ₹{d.get('price', 0)} ({d.get('change_pct', 0):+.2f}%)")
+        if isinstance(d, dict):
+            hw_lines.append(f"  • {d.get('name', sym)}: ₹{d.get('price', 0)} ({d.get('change_pct', 0):+.2f}%)")
     hw_text = "\n".join(hw_lines) if hw_lines else "  • Heavyweights: Normal"
+
+    # Social Sentiment
+    social = market_signals.get("social_sentiment") or intraday_result.get("social_sentiment") or {}
+    if not isinstance(social, dict):
+        social = {}
+    social_line = ""
+    sample_count = int(social.get("sample_count") or 0)
+    if sample_count > 0 or social.get("retail_mood"):
+        mood_str = str(social.get("retail_mood") or "NEUTRAL")
+        score_str = _format_retail_score(social.get("retail_sentiment_score"))
+        social_line = f"\n- Retail Crowd Sentiment: {mood_str} ({score_str}/100)"
+        warn = str(social.get("contrarian_warning") or "").strip()
+        if warn:
+            social_line += f" | ⚠️ {warn}"
 
     return f"""NIFTY 50 LIVE INTRADAY CONTEXT:
 - Live NIFTY Spot: {live_spot}
@@ -891,7 +979,7 @@ def _build_intraday_debate_context(
 - Volatility: {vol_dict.get('level', 'MODERATE')} (Range: {vol_dict.get('expected_range', '50-100 pts')})
 - News Sentiment: {news_sentiment}
 - India VIX: {vix} | Option Chain PCR: {pcr} | Max Pain: {max_pain}
-- Top Call OI Wall: {top_call} | Top Put OI Floor: {top_put}
+- Top Call OI Wall: {top_call} | Top Put OI Floor: {top_put}{social_line}
 
 HEAVYWEIGHT STOCK MOVERS:
 {hw_text}
@@ -978,12 +1066,31 @@ def run_intraday_debate(
 
     context = _build_intraday_debate_context(intraday_result, market_signals, heavyweights, news_sentiment)
 
+    # Enrich with CogniGraph memory
+    mom_context = context
+    def_context = context
+    tac_context = context
+    try:
+        from cognigraph import get_cognigraph
+        cg = get_cognigraph()
+        mom_mem = cg.get_agent_memory("MOMENTUM_SCALPER", market_signals)
+        def_mem = cg.get_agent_memory("WALL_DEFENDER", market_signals)
+        tac_mem = cg.get_agent_memory("TACTICAL_SCALPER", market_signals)
+        if mom_mem:
+            mom_context = f"{context}\n\n{mom_mem}"
+        if def_mem:
+            def_context = f"{context}\n\n{def_mem}"
+        if tac_mem:
+            tac_context = f"{context}\n\n{tac_mem}"
+    except Exception as cg_err:
+        logger.warning(f"[IntradayDebate] CogniGraph memory error: {cg_err}")
+
     # ── Stage 1: 3 Groq Personas in Parallel ────────────────────────────────
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            fut_mom = executor.submit(_run_intraday_persona, "MOMENTUM", _INTRADAY_MOMENTUM_SYSTEM, context, groq_key, live_spot)
-            fut_def = executor.submit(_run_intraday_persona, "DEFENDER", _INTRADAY_MEAN_REVERSION_SYSTEM, context, groq_key, live_spot)
-            fut_tac = executor.submit(_run_intraday_persona, "TACTICAL", _INTRADAY_TACTICAL_SYSTEM, context, groq_key, live_spot)
+            fut_mom = executor.submit(_run_intraday_persona, "MOMENTUM", _INTRADAY_MOMENTUM_SYSTEM, mom_context, groq_key, live_spot)
+            fut_def = executor.submit(_run_intraday_persona, "DEFENDER", _INTRADAY_MEAN_REVERSION_SYSTEM, def_context, groq_key, live_spot)
+            fut_tac = executor.submit(_run_intraday_persona, "TACTICAL", _INTRADAY_TACTICAL_SYSTEM, tac_context, groq_key, live_spot)
 
             mom_res = fut_mom.result(timeout=10)
             def_res = fut_def.result(timeout=10)
@@ -1003,6 +1110,14 @@ def run_intraday_debate(
     # ── Stage 2: Gemini Flash Intraday Judge ─────────────────────────────────
     judge_res = None
     if gemini_key:
+        intraday_calib = ""
+        try:
+            from cognigraph import get_cognigraph
+            cg = get_cognigraph()
+            intraday_calib = cg.get_judge_calibration(market_signals)
+        except Exception:
+            intraday_calib = ""
+
         judge_context = f"""INTRADAY DEBATE SUBMISSIONS:
 
 MOMENTUM & TREND SCALPER:
@@ -1019,6 +1134,8 @@ MARKET CONTEXT:
 - Current Market Phase: {intraday_result.get('market_phase', {}).get('phase', 'MARKET HOURS')}
 - Volatility Regime: {intraday_result.get('volatility', {}).get('level', 'MODERATE')}
 - India VIX: {market_signals.get('india_vix', 12.0)} | PCR: {market_signals.get('pcr', 1.0)}
+
+{intraday_calib}
 """
         judge_raw = _gemini_call(_INTRADAY_JUDGE_SYSTEM, judge_context, gemini_key)
         if judge_raw and isinstance(judge_raw, dict) and judge_raw.get("structure") in INTRADAY_VERDICTS:

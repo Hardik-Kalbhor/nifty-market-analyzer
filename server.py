@@ -119,6 +119,7 @@ def analyze():
             india_vix_change_pct=market_signals.get("india_vix_change_pct"),
             pcr=market_signals.get("pcr"),
             global_market_changes=market_signals.get("global_market_changes"),
+            fii_net_cr=fii_dii_data.get("fii_net_crores") if isinstance(fii_dii_data, dict) else None,
         )
 
         # Directly override with 6-Agent Swarm predictions & reasonings
@@ -270,6 +271,37 @@ def get_memory():
         return jsonify({"status": "ok", "data": stats})
     except Exception as e:
         logger.error(f"/api/memory failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/cognigraph", methods=["GET"])
+def get_cognigraph_data():
+    """
+    Expose CogniGraph hierarchical cognitive graph metrics, active causal triples,
+    and persona-conditioned memories for the frontend UI.
+    Query params:
+      ?persona=CONSERVATIVE|AGGRESSIVE|NEUTRAL|JUDGE
+    """
+    try:
+        from cognigraph import get_cognigraph
+        cg = get_cognigraph()
+        stats = cg.get_stats()
+
+        persona = request.args.get("persona")
+        persona_context = ""
+        if persona:
+            persona_context = cg.get_agent_memory(persona, {})
+
+        return jsonify({
+            "status": "ok",
+            "data": {
+                **stats,
+                "requested_persona": persona,
+                "persona_context": persona_context,
+            }
+        })
+    except Exception as e:
+        logger.error(f"/api/cognigraph failed: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 

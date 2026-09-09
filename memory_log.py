@@ -24,6 +24,7 @@ from typing import Any, Callable
 import pytz
 import requests
 import yf_cache
+from cognigraph import get_cognigraph
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,31 @@ class NiftyMemoryLog:
                     outcome_result=outcome_result,
                 )
 
+                # Ingest into CogniGraph memory layer
+                try:
+                    cg = get_cognigraph(str(self._log_path.parent))
+                    cg.ingest_resolution(
+                        trade_date=trade_date,
+                        prediction=entry.get("prediction", "FLAT"),
+                        btst_bias=entry.get("btst_bias", "NO TRADE"),
+                        confidence=int(entry.get("confidence") or 50),
+                        actual_gap_pct=actual_gap_pct,
+                        outcome=outcome_result,
+                        reflection=reflection_text,
+                        market_signals={
+                            "fii_net": entry.get("fii_net"),
+                            "gift_nifty_change_pct": entry.get("gift_nifty_pct"),
+                        },
+                        stage1_result={
+                            "prediction": entry.get("prediction"),
+                            "btst_bias": entry.get("btst_bias"),
+                            "fo_expiry_context": entry.get("fo_context") or entry.get("fo_expiry_context") or "",
+                        },
+                        trade_structure=entry.get("trade_structure"),
+                    )
+                except Exception as cg_err:
+                    logger.warning(f"CogniGraph ingestion error for {trade_date}: {cg_err}")
+
                 resolved_entry = {
                     "date": trade_date,
                     "prediction": entry["prediction"],
@@ -276,14 +302,44 @@ class NiftyMemoryLog:
     # PHASE D — Load Past Context (every run)
     # ─────────────────────────────────────────────────
 
-    def load_past_context(self, n: int = 5) -> str:
+    def load_cognigraph_context(
+        self,
+        persona: str,
+        current_signals: dict | None = None,
+        stage1_result: dict | None = None,
+        max_items: int = 3,
+    ) -> str:
         """
-        Phase D: Return a formatted string of the last N resolved predictions
-        to inject into the LLM prompt as institutional memory.
+        Query CogniGraph memory layer tailored specifically to an agent's persona and active regime.
+        """
+        try:
+            cg = get_cognigraph(str(self._log_path.parent))
+            return cg.get_agent_memory(
+                persona=persona,
+                current_signals=current_signals,
+                stage1_result=stage1_result,
+                max_items=max_items,
+            )
+        except Exception as e:
+            logger.warning(f"CogniGraph load_cognigraph_context failed: {e}")
+            return ""
 
-        Only includes entries that have been resolved (have an OUTCOME section).
-        Returns empty string if no resolved entries exist yet.
+    def load_past_context(
+        self,
+        n: int = 5,
+        persona: str | None = None,
+        current_signals: dict | None = None,
+        stage1_result: dict | None = None,
+    ) -> str:
         """
+        Phase D: Return institutional memory to inject into the LLM prompt.
+        If persona is provided, queries CogniGraph first; falls back to last N chronological entries.
+        """
+        if persona:
+            cogni_ctx = self.load_cognigraph_context(persona, current_signals, stage1_result)
+            if cogni_ctx:
+                return cogni_ctx
+
         entries = self._load_raw_entries()
         resolved = [e for e in entries if e.get("status") not in ("pending",) and e.get("outcome")]
 
@@ -315,7 +371,7 @@ class NiftyMemoryLog:
 
     def get_stats(self) -> dict:
         """
-        Return accuracy statistics for the /api/memory endpoint.
+        Return accuracy statistics for the /api/memory endpoint, including CogniGraph graph metrics.
         """
         entries = self._load_raw_entries()
         resolved = [e for e in entries if e.get("outcome")]
@@ -326,6 +382,13 @@ class NiftyMemoryLog:
         wrong = sum(1 for e in resolved if "WRONG" in e.get("outcome", ""))
         total = len(resolved)
 
+        cognigraph_stats = {}
+        try:
+            cg = get_cognigraph(str(self._log_path.parent))
+            cognigraph_stats = cg.get_stats()
+        except Exception as e:
+            logger.warning(f"CogniGraph stats retrieval failed: {e}")
+
         return {
             "total_predictions": total + len(pending),
             "resolved": total,
@@ -334,6 +397,7 @@ class NiftyMemoryLog:
             "partial": partial,
             "wrong": wrong,
             "accuracy_pct": round((correct / total * 100) if total > 0 else 0.0, 1),
+            "cognigraph": cognigraph_stats,
             "entries": [
                 {
                     "date": e["date"],
