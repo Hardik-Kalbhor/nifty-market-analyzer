@@ -33,7 +33,7 @@ class CogniGraph(
         self.half_life_days = half_life_days
         self._lock = threading.RLock()
         if history_dir is None:
-            base = os.getenv("HISTORY_DIR", os.path.join(os.path.dirname(__file__), "history"))
+            base = os.getenv("HISTORY_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "history"))
         else:
             base = history_dir
 

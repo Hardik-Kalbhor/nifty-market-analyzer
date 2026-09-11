@@ -24,7 +24,7 @@ def _validate_and_ground_output(
     valid_verdicts = {
         "HOLD_AND_RIDE", "PARTIAL_BOOK_50", "PARTIAL_BOOK_70",
         "TRAIL_SL_TO_COST", "TRAIL_SL_TIGHT", "FULL_EXIT",
-        "PRE_CLOSE_EXIT", "EMERGENCY_EXIT"
+        "PRE_CLOSE_EXIT", "EMERGENCY_EXIT", "STAGNATION_EXIT"
     }
 
     # 1. Enforce valid verdict

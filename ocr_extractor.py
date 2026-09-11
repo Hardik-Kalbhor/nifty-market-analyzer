@@ -42,6 +42,10 @@ def extract_position_from_image(image_bytes: bytes) -> dict[str, Any]:
         img = Image.open(io.BytesIO(image_bytes))
         if img.mode != "RGB":
             img = img.convert("RGB")
+        # Guardrail for Render 512MB RAM: Downscale excessive dimensions before 2x Lanczos
+        max_dim = 1920
+        if max(img.size) > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
     except Exception as img_err:
         logger.error(f"Failed to open image: {img_err}")
         return {"status": "error", "message": "Invalid image file format."}
@@ -128,8 +132,8 @@ def _parse_ocr_text_deterministic(ocr_text: str, has_red_badge: bool = False, ha
     curr_prem = float(m_ltp.group(1)) if m_ltp else (all_floats[1] if len(all_floats) > 1 else entry_prem)
 
     # 5. Quantity
-    m_qty = re.search(r"(?:QTY|Quantity)[\s\:\=]*(\d{1,4})", ocr_text, re.IGNORECASE)
-    qty = int(m_qty.group(1)) if m_qty else 50
+    m_qty = re.search(r"(?:QTY|Quantity)[\s\:\=]*(\d{1,4})|(\d{1,4})\s*(?:QTY|Quantity)", ocr_text, re.IGNORECASE)
+    qty = int(m_qty.group(1) or m_qty.group(2)) if m_qty else 50
 
     return {
         "strike": strike_str,
@@ -231,6 +235,7 @@ Return ONLY a valid JSON object matching this schema:
   "entry_premium": number (the purchase / avg price),
   "current_premium": number (the live market price / LTP),
   "entry_spot": null,
+  "quantity": number (e.g. 50, 100, 150),
   "pnl_amount": number (unrealized profit/loss in INR),
   "pnl_pct": number (percentage gain or loss),
   "oi_change_pct": number (OI change percent if visible, else null),
@@ -264,6 +269,16 @@ Return ONLY a valid JSON object matching this schema:
 
             # Underlying Spot is LIVE spot, NOT Entry spot -> Always null out entry_spot from screenshot
             parsed["entry_spot"] = None
+
+            # Ensure quantity is populated
+            if parsed.get("quantity") is None:
+                m_q = re.search(r"(?:QTY|Quantity)[\s\:\=]*(\d{1,4})|(\d{1,4})\s*(?:QTY|Quantity)", ocr_text, re.IGNORECASE)
+                parsed["quantity"] = int(m_q.group(1) or m_q.group(2)) if m_q else 50
+            else:
+                try:
+                    parsed["quantity"] = int(parsed["quantity"])
+                except Exception:
+                    parsed["quantity"] = 50
 
             # Enforce deterministic table numbers if found
             if table_entry_prem is not None:

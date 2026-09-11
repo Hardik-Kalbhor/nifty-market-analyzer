@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NIFTY Market Analyzer — BTST + Intraday Dashboard</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=28.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=30.5">
 </head>
 <body>
 
@@ -686,9 +686,82 @@
                             </div>
                         </div>
 
+                        <!-- Exit Conviction Index (ECI) Gauge & Breakdown -->
+                        <div id="exit-eci-card" style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(99,102,241,0.25);">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#cbd5e1;display:flex;align-items:center;gap:6px;">
+                                    <span>🎯</span>
+                                    <span>Exit Conviction Index (ECI)</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span id="exit-eci-urgency-badge" style="font-size:0.70rem;font-weight:800;padding:2px 8px;border-radius:6px;background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.4);">NORMAL</span>
+                                    <span id="exit-eci-score-val" style="font-size:1.15rem;font-weight:800;color:#f8fafc;font-family:monospace;">--/100</span>
+                                </div>
+                            </div>
+                            <!-- ECI Meter Bar -->
+                            <div style="width:100%;height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden;margin-bottom:10px;">
+                                <div id="exit-eci-progress" style="width:0%;height:100%;background:linear-gradient(90deg,#22c55e 0%,#eab308 45%,#f97316 70%,#ef4444 100%);border-radius:4px;transition:width 0.4s ease;"></div>
+                            </div>
+                            <!-- 5 Pillar Subscores -->
+                            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;text-align:center;">
+                                <div style="padding:6px 4px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="font-size:0.65rem;color:#94a3b8;">Price Action</div>
+                                    <div id="eci-sub-pa" style="font-size:0.82rem;font-weight:700;color:#e2e8f0;font-family:monospace;">--</div>
+                                </div>
+                                <div style="padding:6px 4px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="font-size:0.65rem;color:#94a3b8;">Order Flow</div>
+                                    <div id="eci-sub-of" style="font-size:0.82rem;font-weight:700;color:#e2e8f0;font-family:monospace;">--</div>
+                                </div>
+                                <div style="padding:6px 4px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="font-size:0.65rem;color:#94a3b8;">OI & Greeks</div>
+                                    <div id="eci-sub-oi" style="font-size:0.82rem;font-weight:700;color:#e2e8f0;font-family:monospace;">--</div>
+                                </div>
+                                <div style="padding:6px 4px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="font-size:0.65rem;color:#94a3b8;">Time Decay</div>
+                                    <div id="eci-sub-td" style="font-size:0.82rem;font-weight:700;color:#e2e8f0;font-family:monospace;">--</div>
+                                </div>
+                                <div style="padding:6px 4px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+                                    <div style="font-size:0.65rem;color:#94a3b8;">Macro</div>
+                                    <div id="eci-sub-mc" style="font-size:0.82rem;font-weight:700;color:#e2e8f0;font-family:monospace;">--</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Continuous Excursion & Microstructure Badges -->
+                        <div id="exit-excursion-row" style="margin-bottom:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;">
+                            <div style="padding:6px 10px;border-radius:6px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);font-size:0.74rem;">
+                                <span style="color:#94a3b8;">Peak MFE:</span> <strong id="exit-mfe-text" style="color:#4ade80;">--</strong>
+                            </div>
+                            <div style="padding:6px 10px;border-radius:6px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);font-size:0.74rem;">
+                                <span style="color:#94a3b8;">Max MAE:</span> <strong id="exit-mae-text" style="color:#f87171;">--</strong>
+                            </div>
+                            <div style="padding:6px 10px;border-radius:6px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);font-size:0.74rem;">
+                                <span style="color:#94a3b8;">ATR Trail:</span> <strong id="exit-atr-text" style="color:#a5b4fc;">--</strong>
+                            </div>
+                            <div style="padding:6px 10px;border-radius:6px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);font-size:0.74rem;">
+                                <span style="color:#94a3b8;">CVD Flow:</span> <strong id="exit-cvd-text" style="color:#fbbf24;">--</strong>
+                            </div>
+                        </div>
+
+                        <!-- Manual Exit Session Action Strip -->
+                        <div id="exit-session-action-strip" style="margin-bottom:14px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);display:flex;justify-content:space-between;align-items:center;">
+                            <div style="font-size:0.74rem;color:#94a3b8;">
+                                <span>Session:</span> <code id="exit-session-id-label" style="color:#e2e8f0;font-size:0.72rem;">None</code>
+                            </div>
+                            <button type="button" id="btn-manual-close-trade" class="btn btn-secondary" style="padding:4px 12px;font-size:0.75rem;background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);cursor:pointer;">
+                                🚪 Close & Exit Trade Now
+                            </button>
+                        </div>
+
                         <!-- Action Plan Alert -->
                         <div class="exit-action-box" id="exit-action-box">
-                            <div class="exit-action-title">🚨 Action Plan</div>
+                            <div class="exit-action-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                                <div class="exit-action-title" style="margin-bottom:0;display:flex;align-items:center;gap:6px;">
+                                    <span>⚡</span>
+                                    <span>ACTION PLAN</span>
+                                </div>
+                                <span id="exit-action-urgency-badge" style="font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.06em;border:1px solid transparent;display:none;"></span>
+                            </div>
                             <div class="exit-action-text" id="exit-action-text">--</div>
                         </div>
 
@@ -786,9 +859,9 @@
                             </div>
                         </div>
 
-                        <!-- 7-Agent Dimension Score Cards -->
+                        <!-- 9-Agent Dimension Score Cards -->
                         <div id="exit-dimension-scores" style="display:none;margin-top:14px;">
-                            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;opacity:0.5;margin-bottom:8px;">🤖 7-Perspective Specialist Analysis</div>
+                            <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;opacity:0.5;margin-bottom:8px;">🤖 9-Perspective Specialist Analysis</div>
                             <div id="exit-dimension-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px;"></div>
                         </div>
                     </div>
@@ -1226,7 +1299,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="{{ url_for('static', filename='script.js') }}?v=30.1"></script>
+<script src="{{ url_for('static', filename='script.js') }}?v=30.5"></script>
 
 
 

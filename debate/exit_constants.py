@@ -11,6 +11,7 @@ EXIT_VERDICTS = {
     "FULL_EXIT",
     "PRE_CLOSE_EXIT",
     "EMERGENCY_EXIT",
+    "STAGNATION_EXIT",
 }
 
 _EXIT_RUNNER_SYSTEM = """You are the RUNNER ANALYST (Momentum & Profit Expansion) in a 3-person Live Position Exit Committee.
@@ -94,7 +95,7 @@ Rules:
 Output ONLY valid JSON (no markdown, no extra text):
 {
   "verdict": "HOLD_AND_RIDE" | "PARTIAL_BOOK_50" | "PARTIAL_BOOK_70" | "TRAIL_SL_TO_COST" | "TRAIL_SL_TIGHT" | "FULL_EXIT",
-  "action": "<specific lot-by-lot instruction, e.g. 'Book 50% profit (1 lot) at market. Trail remaining 1 lot SL to breakeven (24,450)'>",
+  "action": "<Ultra-brief 1-2 bullet steps, max 20 words total. Format as: '1. <Action with price/lot>. 2. <Rule/Protection>.' Example: '1. Trail SL to ₹24,450. 2. Hold 100% size; zero adds.'>",
   "trailing_sl": <number: specific spot level for trailing stop loss on correct side of spot>,
   "debate_consensus": "UNANIMOUS" | "MAJORITY" | "SPLIT",
   "confidence_adjustment": <integer, e.g. +5 or -10 or 0>,

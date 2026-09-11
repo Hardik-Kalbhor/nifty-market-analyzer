@@ -23,21 +23,7 @@ def evaluate_critical_rules(
     entry_premium = _safe_float(position.get("entry_premium") or position.get("entry_price") or position.get("buy_price") or position.get("avg_price"), 0.0)
     current_premium = _safe_float(position.get("current_premium") or position.get("current_ltp") or position.get("current_price") or position.get("ltp"), 0.0)
 
-    # 1. 15:15 IST Mandatory Pre-Close Square-Off for Intraday Trades
-    if trade_type == "INTRADAY":
-        if now_ist.hour == 15 and now_ist.minute >= 15:
-            return {
-                "verdict": "PRE_CLOSE_EXIT",
-                "action": "Mandatory square-off before 15:20 broker auto-liquidation penalty.",
-                "confidence": 95,
-                "urgency": "HIGH",
-                "engine": "Deterministic Fast-Path (Time Cutoff)",
-                "reasoning": f"Current time is {now_ist.strftime('%H:%M IST')}. Intraday positions must be squared off before market close.",
-                "trailing_sl": round(current_spot, 2),
-                "is_fast_path": True,
-            }
-
-    # 2. Extreme Volatility / VIX Shock (>= 8.0% spike or VIX > 18 with 5% spike)
+    # 1. Extreme Volatility / VIX Shock (>= 8.0% spike or VIX > 18 with 5% spike)
     current_vix = _safe_float(live_signals.get("india_vix"), 14.0)
     is_vix_shock = (vix_change_pct >= 8.0) or (current_vix >= 18.0 and vix_change_pct >= 5.0)
     if is_vix_shock:
@@ -110,5 +96,19 @@ def evaluate_critical_rules(
                 "is_fast_path": True,
             }
 
+
+    # 4. 15:15 IST Mandatory Pre-Close Square-Off for Intraday Trades
+    if trade_type == "INTRADAY":
+        if now_ist.hour == 15 and now_ist.minute >= 15:
+            return {
+                "verdict": "PRE_CLOSE_EXIT",
+                "action": "Mandatory square-off before 15:20 broker auto-liquidation penalty.",
+                "confidence": 95,
+                "urgency": "HIGH",
+                "engine": "Deterministic Fast-Path (Time Cutoff)",
+                "reasoning": f"Current time is {now_ist.strftime('%H:%M IST')}. Intraday positions must be squared off before market close.",
+                "trailing_sl": round(current_spot, 2),
+                "is_fast_path": True,
+            }
 
     return None

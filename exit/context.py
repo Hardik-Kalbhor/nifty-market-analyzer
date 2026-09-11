@@ -107,6 +107,26 @@ def build_exit_prompt_context(
     it_pct_val = live_signals.get("sectoral_signals", {}).get("it_nifty_pct")
     it_pct_text = f"{it_pct_val:+.2f}%" if it_pct_val is not None else "0.00%"
 
+    # Quantitative Risk Metrics & Order Flow Context
+    mfe_pct = float(position.get("mfe_pct", favorable_move) or 0.0)
+    mae_pct = float(position.get("mae_pct", 0.0) or 0.0)
+    mfe_r = float(position.get("mfe_r", 0.0) or 0.0)
+    curr_r = float(position.get("current_r", 0.0) or 0.0)
+    mfe_locked_str = "ACTIVE (Breakeven Locked)" if position.get("mfe_locked") else "Inactive"
+    elapsed_mins = float(position.get("elapsed_minutes", 0.0) or 0.0)
+    atr_val = float(live_signals.get("atr_14_1min", 18.0) or 18.0)
+    atr_trail = float(position.get("atr_trail_level", current_spot) or current_spot)
+
+    coi_call = float(live_signals.get("coi_call_change_pct", 0.0) or 0.0)
+    coi_put = float(live_signals.get("coi_put_change_pct", 0.0) or 0.0)
+    cvd_dir = str(live_signals.get("cvd_divergence", "NEUTRAL")).upper()
+    atm_strike = live_signals.get("atm_strike", "N/A")
+
+    coi_interp = (
+        f"⚠️ AGGRESSIVE CALL WRITING (+{coi_call:.1f}% in 5m) — smart money selling into rally" if coi_call >= 15.0 else
+        (f"⚠️ AGGRESSIVE PUT WRITING (+{coi_put:.1f}% in 5m) — support floor being erected" if coi_put >= 15.0 else "Normal writing pace")
+    )
+
     return f"""
     === USER'S LIVE OPEN POSITION ===
     - Trade Type: {trade_type} ({'Overnight BTST' if trade_type == 'BTST' else 'Intraday Day Trade'})
@@ -115,13 +135,23 @@ def build_exit_prompt_context(
     - Entry NIFTY Spot: {entry_spot} | Live NIFTY Spot: {current_spot} (Diff: {spot_diff:+.1f} pts, {spot_pct:+.2f}%)
     - Directional Performance: {favorable_move:+.2f}% {'Favorable ✅' if favorable_move >= 0 else 'Adverse ❌'}
     - Option Premium Status: {prem_info}
-    - Entry Time: {entry_time} | Risk Profile: {risk_profile}
+    - Entry Time: {entry_time} (Elapsed: {elapsed_mins:.0f} mins) | Risk Profile: {risk_profile}
     - {time_ctx}
     - Expiry / Theta Context: {dte_text}
 
-    === LIVE MARKET MICROSTRUCTURE ===
+    === QUANTITATIVE RISK & EXCURSION METRICS ===
+    - MFE (Peak Favorable Excursion): {mfe_pct:+.2f}% | Peak R-Multiple: {mfe_r:.2f}R | MFE Lock: {mfe_locked_str}
+    - MAE (Max Adverse Excursion): {mae_pct:+.2f}% | Current R-Multiple: {curr_r:+.2f}R
+    - ATR-14 Trailing Level (k=1.5): {atr_trail:.1f} (1-min ATR = {atr_val:.1f} pts)
+    - Dead-Money Timeout Threshold: 35 minutes (Current: {elapsed_mins:.0f} mins)
+
+    === LIVE MARKET MICROSTRUCTURE & ORDER FLOW ===
     - NIFTY 50 Change: {nifty_pct_text}
     - India VIX: {vix_text}
+    - ATM Strike: {atm_strike}
+    - COI Call Velocity (5-min): {coi_call:+.1f}% | COI Put Velocity (5-min): {coi_put:+.1f}%
+    - COI Microstructure Flow: {coi_interp}
+    - CVD Volume Delta Proxy (5 bars): {cvd_dir}
     - Bank Nifty: {bank_pct_text}
     - IT Nifty: {it_pct_text}
     - Global Asian / US Cues: {json.dumps(live_signals.get('global_market_changes', {}))}
@@ -144,5 +174,5 @@ def build_exit_prompt_context(
     === BREAKING NEWS HEADLINES ===
 {news_text}
 
-    Evaluate this live trade across all 7 specialist dimensions (including SOCIAL_CONTRARIAN), then synthesise a final verdict. Return the JSON exit recommendation.
+    Evaluate this live trade across all 7 specialist dimensions (including SOCIAL_CONTRARIAN), plus MFE_MAE and ORDER_FLOW (9 dimensions total), then synthesise a final verdict. Return the JSON exit recommendation.
     """

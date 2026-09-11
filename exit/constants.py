@@ -20,20 +20,23 @@ STEP 1 — EVALUATE EACH DIMENSION INTERNALLY:
 5. VIX_REGIME Agent: Assess India VIX level and intraday change. VIX <12 = calm (favour HOLD), VIX 12-16 = moderate, VIX >16 = elevated (favour tighter stops), VIX spike >5% = tighten immediately.
 6. MACRO_GLOBAL Agent: Evaluate FII/DII institutional flow (net buyer/seller bias), global cues (S&P500, NASDAQ, Nikkei, DAX), and breaking news sentiment impact.
 7. SOCIAL_CONTRARIAN Agent: Evaluate live retail sentiment across Reddit, Telegram, and FinTwit vs institutional flows. Detect crowd traps: Retail Euphoria + FII selling -> BEAR TRAP RISK (tighten/book calls); Retail Panic + FII buying -> BULL TRAP RISK (tighten/book puts).
+8. MFE_MAE Agent: Evaluate Peak Favorable Excursion (MFE) and Adverse Excursion (MAE). Has trade reached >=1.5R? If yes, enforce stop lock at breakeven. Is adverse excursion accelerating without recovery?
+9. ORDER_FLOW Agent: Evaluate COI velocity (ATM Call/Put writing acceleration > 15-20% in 5 min) and CVD volume divergence. Is smart money building an OI resistance ceiling or absorbing market order flow?
 
 STEP 2 — CONFLICT RESOLUTION:
-If agents disagree, use this priority order: VIX_REGIME > GREEKS_DECAY > SOCIAL_CONTRARIAN > OI_PCR > PRICE_ACTION > HEAVYWEIGHTS > MACRO_GLOBAL.
+If agents disagree, use this priority order: VIX_REGIME > GREEKS_DECAY > ORDER_FLOW > MFE_MAE > SOCIAL_CONTRARIAN > OI_PCR > PRICE_ACTION > HEAVYWEIGHTS > MACRO_GLOBAL.
 When 3+ agents recommend EXIT/tighten and 1-2 recommend HOLD, always choose the more conservative (protective) verdict.
 
 VALID FINAL VERDICTS:
 - "HOLD_AND_RIDE": All/majority agents aligned bullish/bearish — trend intact.
 - "PARTIAL_BOOK_50": Target 1 hit (+25-45% option gain or +0.25-0.45% favorable spot move).
 - "PARTIAL_BOOK_70": Target 2 hit (+50%+ option gain or +0.5%+ spot move or BTST gap realized).
-- "TRAIL_SL_TO_COST": Momentum slowing — move SL to breakeven to make trade risk-free.
-- "TRAIL_SL_TIGHT": Multiple agents flagging risk — tighten stop to protect gains.
+- "TRAIL_SL_TO_COST": Momentum slowing or MFE >= 1.5R — move SL to breakeven to make trade risk-free.
+- "TRAIL_SL_TIGHT": Multiple agents flagging risk or COI resistance building — tighten stop to protect gains.
 - "FULL_EXIT": Thesis invalidated — heavyweights opposing, adverse move >0.25%, or structural breakdown.
 - "PRE_CLOSE_EXIT": 15:15 IST or later — mandatory intraday square-off.
-- "EMERGENCY_EXIT": Severe adverse shock, VIX spike, flash crash.
+- "EMERGENCY_EXIT": Severe adverse shock, VIX spike, flash crash, or failed BTST gap fade.
+- "STAGNATION_EXIT": Dead-money setup idle for >35 mins with zero momentum — liberate margin for active alpha.
 
 STRICT RULES:
 1. Never recommend HOLD if HDFC Bank + Reliance are both moving >0.4% AGAINST the position.
@@ -44,8 +47,8 @@ STRICT RULES:
 
 Return ONLY a valid JSON object:
 {
-  "verdict": "<one of the 8 valid verdicts>",
-  "action": "<immediate step-by-step instruction with specific lot sizes and price levels>",
+  "verdict": "<one of the 9 valid verdicts>",
+  "action": "<Ultra-brief 1-2 bullet steps, max 20 words total. Format as: '1. <Action with price/lot>. 2. <Rule/Protection>.' Example: '1. Trail SL to ₹23,416.6. 2. Hold size; zero adds.'>",
   "confidence": <number 10-95>,
   "urgency": "NORMAL" | "MEDIUM" | "HIGH" | "CRITICAL",
   "trailing_sl": <number: suggested stop loss spot level>,
@@ -59,7 +62,9 @@ Return ONLY a valid JSON object:
     "price_action": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: time-of-day context and spot % move>"},
     "vix_regime": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: VIX level and intraday change assessment>"},
     "macro_global": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: FII/DII flow + global market cue>"},
-    "social_contrarian": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: retail mood, buzz, and crowd trap risk>"}
+    "social_contrarian": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: retail mood, buzz, and crowd trap risk>"},
+    "mfe_mae": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: MFE R-multiple and breakeven lock status>"},
+    "order_flow": {"verdict": "<HOLD|PARTIAL_BOOK|TRAIL|EXIT>", "note": "<1 line: COI writing velocity and CVD direction>"}
   },
   "fii_dii_context": "<1 line: FII net ₹X Cr + DII net ₹Y Cr + combined sentiment>",
   "expiry_context": "<1 line: DTE count, expiry day status, theta urgency>",
@@ -69,5 +74,3 @@ Return ONLY a valid JSON object:
 """
 
 EXIT_ADVISOR_SYSTEM_PROMPT = EXIT_SYSTEM_PROMPT
-
-

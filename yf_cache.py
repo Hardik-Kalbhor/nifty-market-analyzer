@@ -24,6 +24,7 @@ from yf_cache import (  # noqa: F401
     _http_get_with_retry,
     fetch_quote,
     fetch_daily_bars,
+    fetch_1min_bars,
 )
 
 __all__ = [
@@ -51,4 +52,5 @@ __all__ = [
     "_http_get_with_retry",
     "fetch_quote",
     "fetch_daily_bars",
+    "fetch_1min_bars",
 ]

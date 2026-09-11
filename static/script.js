@@ -2003,6 +2003,176 @@ async function evaluateLiveExit(showLoadingState = true) {
 }
 
 
+function render3StepActionPlan(actionText, actionBox, data) {
+    if (!actionBox || !actionText) return;
+    const verdict = (data.verdict || "HOLD_AND_RIDE").toUpperCase();
+    const cleanVerdict = verdict.replace(/_/g, " ");
+    actionBox.className = "exit-action-box " + verdict.toLowerCase();
+
+    // Urgency badge
+    const urgencyBadge = document.getElementById("exit-action-urgency-badge");
+    if (urgencyBadge) {
+        const urgency = (data.urgency || "NORMAL").toUpperCase();
+        urgencyBadge.style.display = "inline-block";
+        if (urgency === "CRITICAL" || verdict.includes("EMERGENCY") || verdict.includes("FULL_EXIT") || verdict.includes("PRE_CLOSE")) {
+            urgencyBadge.textContent = "⚡ IMMEDIATE EXECUTION";
+            urgencyBadge.style.background = "rgba(239, 68, 68, 0.25)";
+            urgencyBadge.style.color = "#fca5a5";
+            urgencyBadge.style.borderColor = "rgba(239, 68, 68, 0.45)";
+        } else if (urgency === "HIGH" || verdict.includes("PARTIAL_BOOK_70")) {
+            urgencyBadge.textContent = "⚠️ HIGH PRIORITY";
+            urgencyBadge.style.background = "rgba(249, 115, 22, 0.25)";
+            urgencyBadge.style.color = "#fdba74";
+            urgencyBadge.style.borderColor = "rgba(249, 115, 22, 0.45)";
+        } else if (urgency === "MEDIUM" || verdict.includes("PARTIAL") || verdict.includes("TRAIL_SL_TIGHT")) {
+            urgencyBadge.textContent = "🎯 TACTICAL ACTION";
+            urgencyBadge.style.background = "rgba(234, 179, 8, 0.2)";
+            urgencyBadge.style.color = "#fde047";
+            urgencyBadge.style.borderColor = "rgba(234, 179, 8, 0.4)";
+        } else {
+            urgencyBadge.textContent = "🛡️ DISCIPLINE / HOLD";
+            urgencyBadge.style.background = "rgba(34, 197, 94, 0.18)";
+            urgencyBadge.style.color = "#86efac";
+            urgencyBadge.style.borderColor = "rgba(34, 197, 94, 0.35)";
+        }
+    }
+
+    // Read trade parameters from DOM & payload
+    const posSide = (document.getElementById("exit-pos-side")?.value || "").toUpperCase();
+    const isOptionSeller = posSide.includes("SHORT");
+    const isOptionBuyer = posSide.includes("BUY");
+    const isBullish = posSide.includes("CE") || posSide.includes("LONG") || posSide === "SHORT_PE";
+
+    const entrySpot = parseFloat(document.getElementById("exit-entry-spot")?.value) || 0;
+    const entryPrem = parseFloat(document.getElementById("exit-entry-price")?.value) || 0;
+    const currPrem = parseFloat(document.getElementById("exit-current-price")?.value) || 0;
+
+    const slVal = data.trailing_sl || (entrySpot > 0 ? entrySpot : null);
+    const slStr = slVal ? `₹${Number(slVal).toLocaleString("en-IN")}` : "Cost (Breakeven)";
+
+    // Live spot approximation for points difference
+    let liveSpot = 0;
+    const spotMatch = data.reasoning?.match(/(\d{5}(?:\.\d+)?)/);
+    if (spotMatch) {
+        liveSpot = parseFloat(spotMatch[1]);
+    } else if (data.live_spot) {
+        liveSpot = parseFloat(data.live_spot);
+    }
+    const ptsDiff = (liveSpot && slVal) ? Math.abs(liveSpot - slVal).toFixed(1) : null;
+    const directionWord = isBullish ? "below" : "above";
+
+    // ── STEP 1: Stop-Loss Protection ─────────────────────────────────────────
+    let step1Title = `Trail Stop to ${slStr} (Spot)`;
+    let step1Bullets = [];
+
+    if (verdict.includes("FULL_EXIT") || verdict.includes("EMERGENCY") || verdict.includes("PRE_CLOSE")) {
+        step1Title = `Liquidate Position Immediately`;
+        step1Bullets.push(`Exit 100% open lots immediately at market price.`);
+        step1Bullets.push(`Structural invalidation or hard stop triggered. Halt risk bleed.`);
+    } else if (verdict === "PARTIAL_BOOK_70") {
+        step1Title = `Book 70% Profit & Trail Stop`;
+        step1Bullets.push(`Execute market order to bank profit on 70% lots immediately.`);
+        step1Bullets.push(`Move trailing SL on remaining 30% strictly to <strong>${slStr}</strong>.`);
+    } else if (verdict === "PARTIAL_BOOK_50") {
+        step1Title = `Book 50% Profit & Trail Stop`;
+        step1Bullets.push(`Execute market order to bank profit on 50% lots immediately.`);
+        step1Bullets.push(`Move trailing SL on remaining 50% strictly to <strong>${slStr}</strong>.`);
+    } else {
+        if (slVal) {
+            const ptsNote = ptsDiff ? ` (just ${ptsDiff} pts ${directionWord} current market price)` : "";
+            step1Bullets.push(`Move your underlying trailing SL to <strong>${slStr.replace('₹', '')}</strong>${ptsNote}.`);
+        } else {
+            step1Bullets.push(`Maintain a disciplined stop-loss at <strong>Cost (Breakeven)</strong> to protect capital.`);
+        }
+        if (isOptionSeller && entryPrem > 0 && currPrem > 0) {
+            const optSl = Math.round(currPrem + (entryPrem - currPrem) * 0.25);
+            const lockProfit = Math.max(0, Math.round(entryPrem - optSl));
+            step1Bullets.push(`If trading by option premium, set an option SL around <strong>₹${optSl}</strong> (locking in ~₹${lockProfit}/share profit from your ₹${entryPrem} entry).`);
+        } else if (isOptionBuyer && entryPrem > 0 && currPrem > 0) {
+            const optSl = currPrem > entryPrem ? Math.round(entryPrem + (currPrem - entryPrem) * 0.5) : Math.round(entryPrem * 0.72);
+            step1Bullets.push(`If trading by option premium, set an option SL around <strong>₹${optSl}</strong> to lock profits.`);
+        }
+    }
+
+    // ── STEP 2: Position Sizing & Discipline ─────────────────────────────────
+    let step2Title = `Hold Current Size (No Additions)`;
+    let step2Bullets = [];
+
+    if (verdict.includes("FULL_EXIT") || verdict.includes("EMERGENCY") || verdict.includes("PRE_CLOSE")) {
+        step2Title = `Cancel All Broker Orders`;
+        step2Bullets.push(`Cancel all pending broker limit and stop orders on terminal.`);
+        step2Bullets.push(`Ensure zero unmanaged order exposure remains.`);
+    } else if (verdict === "PARTIAL_BOOK_70") {
+        step2Title = `Capital Defense Lock (Remaining 30%)`;
+        step2Bullets.push(`Keep remaining 30% lots running as a risk-free trend runner.`);
+        step2Bullets.push(`Guarantee zero-risk status: do not add to winning runner.`);
+    } else if (verdict === "PARTIAL_BOOK_50") {
+        step2Title = `Capital Defense Lock (Remaining 50%)`;
+        step2Bullets.push(`Keep remaining 50% lots running for trend continuation.`);
+        step2Bullets.push(`Move stop-loss strictly to entry cost to guarantee breakeven.`);
+    } else {
+        step2Bullets.push(`Keep 100% of the position running.`);
+        step2Bullets.push(`Do not average down or scale in due to the +5% VIX spike.`);
+    }
+
+    // ── STEP 3: Take-Profit Triggers ─────────────────────────────────────────
+    let step3Title = `Take-Profit Triggers`;
+    let step3Bullets = [];
+
+    if (verdict.includes("FULL_EXIT") || verdict.includes("EMERGENCY") || verdict.includes("PRE_CLOSE")) {
+        step3Title = `Re-Entry Discipline`;
+        step3Bullets.push(`Trade thesis invalidated under current market microstructure.`);
+        step3Bullets.push(`Do not re-enter until fresh confirmation establishes clear edge.`);
+    } else {
+        if (isOptionSeller && entryPrem > 0 && currPrem > 0) {
+            const targetPrem = Math.max(10, Math.round(currPrem * 0.64));
+            const decayPct = Math.round(((entryPrem - targetPrem) / entryPrem) * 100);
+            step3Bullets.push(`If premium hits <strong>₹${targetPrem}</strong> (≈${decayPct}% decay) → <strong>Book 50% lots</strong>.`);
+        } else if (isOptionBuyer && currPrem > 0) {
+            const targetPrem = Math.round(currPrem * 1.35);
+            step3Bullets.push(`If premium hits <strong>₹${targetPrem}</strong> (+35% expansion) → <strong>Book 50% lots</strong>.`);
+        }
+
+        // Spot target calculation
+        const baseSpot = liveSpot || entrySpot || 23428;
+        const targetSpot = isBullish ? Math.round(Math.ceil(baseSpot / 50) * 50) + 25 : Math.round(Math.floor(baseSpot / 50) * 50) - 25;
+        const wallStrike = isBullish ? targetSpot + 25 : targetSpot - 25;
+        const wallName = isBullish ? "Call wall" : "Put wall";
+        step3Bullets.push(`If Spot touches <strong>${targetSpot.toLocaleString("en-IN")}</strong> (approaching the ${wallStrike.toLocaleString("en-IN")} ${wallName}) → <strong>Book 50% lots</strong>.`);
+
+        // Breach cutoff
+        const breachVerb = isBullish ? "drops below" : "rises above";
+        step3Bullets.push(`If Spot ${breachVerb} <strong>${slStr.replace('₹', '')}</strong> → <strong>Exit all lots instantly</strong>.`);
+    }
+
+    const steps = [
+        { num: "1", icon: "🎯", title: step1Title, bullets: step1Bullets },
+        { num: "2", icon: "🛡️", title: step2Title, bullets: step2Bullets },
+        { num: "3", icon: "💰", title: step3Title, bullets: step3Bullets },
+    ];
+
+    const html = `
+        <div style="margin-bottom:10px;font-size:0.80rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;">
+            📋 3-Step Execution Plan
+        </div>
+        <div class="action-3step-container" style="display:flex;flex-direction:column;gap:10px;">
+            ${steps.map(s => `
+                <div class="action-step-card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.09);border-radius:8px;padding:10px 14px;">
+                    <div class="action-step-header" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                        <span style="font-size:0.95rem;">${s.icon}</span>
+                        <span class="action-step-title" style="font-size:0.90rem;font-weight:700;color:#f8fafc;">${s.title}</span>
+                    </div>
+                    <ul class="action-step-bullets" style="margin:0;padding-left:18px;font-size:0.82rem;line-height:1.55;color:#cbd5e1;">
+                        ${s.bullets.map(b => `<li style="margin-bottom:3px;">${b}</li>`).join("")}
+                    </ul>
+                </div>
+            `).join("")}
+        </div>
+    `;
+
+    actionText.innerHTML = html;
+}
+
 function renderExitAdvisorResult(data) {
     const verdictTag = document.getElementById("exit-verdict-tag");
     const engineBadge = document.getElementById("exit-engine-badge");
@@ -2032,10 +2202,7 @@ function renderExitAdvisorResult(data) {
 
     if (confVal) confVal.textContent = (data.confidence || 75) + "%";
 
-    if (actionBox) {
-        actionBox.className = "exit-action-box " + verdict.toLowerCase();
-    }
-    if (actionText) actionText.textContent = data.action || "--";
+    render3StepActionPlan(actionText, actionBox, data);
 
     if (metricSl) {
         metricSl.textContent = data.trailing_sl ? `₹${data.trailing_sl.toLocaleString("en-IN")}` : "Cost (Breakeven)";
@@ -2065,6 +2232,105 @@ function renderExitAdvisorResult(data) {
     if (reasoningText) {
         reasoningText.textContent = data.reasoning || "Evaluation based on live market conditions.";
     }
+
+    // ── Institutional ECI Gauge & 5 Pillars ──
+    const eciScoreVal = document.getElementById("exit-eci-score-val");
+    const eciUrgencyBadge = document.getElementById("exit-eci-urgency-badge");
+    const eciProgress = document.getElementById("exit-eci-progress");
+    const eciScore = (data.eci_score !== undefined && data.eci_score !== null) ? data.eci_score : 40;
+    const urgency = data.urgency || "NORMAL";
+
+    if (eciScoreVal) eciScoreVal.textContent = `${eciScore}/100`;
+    if (eciProgress) eciProgress.style.width = `${eciScore}%`;
+    if (eciUrgencyBadge) {
+        eciUrgencyBadge.textContent = `${urgency} URGENCY`;
+        const badgeColors = {
+            NORMAL: "background:rgba(34,197,94,0.18);color:#4ade80;border:1px solid rgba(34,197,94,0.35);",
+            MEDIUM: "background:rgba(245,158,11,0.18);color:#fbbf24;border:1px solid rgba(245,158,11,0.35);",
+            HIGH: "background:rgba(249,115,22,0.18);color:#fb923c;border:1px solid rgba(249,115,22,0.35);",
+            CRITICAL: "background:rgba(239,68,68,0.22);color:#f87171;border:1px solid rgba(239,68,68,0.45);",
+        };
+        eciUrgencyBadge.style.cssText = `font-size:0.70rem;font-weight:800;padding:2px 8px;border-radius:6px;${badgeColors[urgency] || badgeColors.NORMAL}`;
+    }
+
+    const bd = data.eci_breakdown || {};
+    const subPa = document.getElementById("eci-sub-pa");
+    const subOf = document.getElementById("eci-sub-of");
+    const subOi = document.getElementById("eci-sub-oi");
+    const subTd = document.getElementById("eci-sub-td");
+    const subMc = document.getElementById("eci-sub-mc");
+    if (subPa) subPa.textContent = bd.price_action !== undefined ? `${bd.price_action}` : "--";
+    if (subOf) subOf.textContent = bd.order_flow !== undefined ? `${bd.order_flow}` : "--";
+    if (subOi) subOi.textContent = bd.oi_greeks !== undefined ? `${bd.oi_greeks}` : "--";
+    if (subTd) subTd.textContent = bd.time_decay !== undefined ? `${bd.time_decay}` : "--";
+    if (subMc) subMc.textContent = bd.macro_intermarket !== undefined ? `${bd.macro_intermarket}` : "--";
+
+    // ── Continuous Excursion & Microstructure Indicators ──
+    const mfeEl = document.getElementById("exit-mfe-text");
+    const maeEl = document.getElementById("exit-mae-text");
+    const atrEl = document.getElementById("exit-atr-text");
+    const cvdEl = document.getElementById("exit-cvd-text");
+
+    if (mfeEl) {
+        const mfeVal = data.mfe_pct !== undefined ? `${data.mfe_pct > 0 ? '+' : ''}${data.mfe_pct}%` : "--";
+        const lockStr = data.mfe_locked ? " (Locked)" : "";
+        mfeEl.textContent = `${mfeVal}${lockStr}`;
+    }
+    if (maeEl) {
+        maeEl.textContent = data.mae_pct !== undefined ? `${data.mae_pct}%` : "--";
+    }
+    if (atrEl) {
+        atrEl.textContent = data.atr_trail_level ? `₹${data.atr_trail_level.toLocaleString("en-IN")}` : "--";
+    }
+    if (cvdEl) {
+        cvdEl.textContent = data.cvd_divergence || "NEUTRAL";
+    }
+
+    // ── Session ID & Manual Exit Button ──
+    const sessionLabel = document.getElementById("exit-session-id-label");
+    const closeBtn = document.getElementById("btn-manual-close-trade");
+    window.currentExitSessionId = data.session_id || window.currentExitSessionId;
+
+    if (sessionLabel) {
+        sessionLabel.textContent = window.currentExitSessionId || "None";
+    }
+
+    if (closeBtn && !closeBtn.dataset.wired) {
+        closeBtn.dataset.wired = "true";
+        closeBtn.addEventListener("click", async () => {
+            if (!window.currentExitSessionId) {
+                alert("No active trade session to close.");
+                return;
+            }
+            if (!confirm(`Are you sure you want to exit and mark trade session ${window.currentExitSessionId} as CLOSED?`)) {
+                return;
+            }
+            try {
+                closeBtn.disabled = true;
+                closeBtn.textContent = "Closing...";
+                const res = await fetch("/api/exit-advisor/close", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ session_id: window.currentExitSessionId, reason: "MANUAL_EXIT" })
+                });
+                const json = await res.json();
+                if (json.status === "success") {
+                    alert(`✅ Trade Exited Successfully!\nRealized Spot P&L: ${json.session.realized_spot_pnl_pct || 0}%\nRealized Premium P&L: ${json.session.realized_premium_pnl_pct || 0}%`);
+                    window.currentExitSessionId = null;
+                    if (sessionLabel) sessionLabel.textContent = "CLOSED";
+                    closeBtn.style.display = "none";
+                } else {
+                    alert("Failed to close session: " + json.message);
+                }
+            } catch (err) {
+                alert("Error closing session: " + err);
+            } finally {
+                closeBtn.disabled = false;
+                closeBtn.textContent = "🚪 Close & Exit Trade Now";
+            }
+        });
+    }
+
 
     // Contrarian Shield Banner
     const contrarianShield = document.getElementById("exit-contrarian-shield");
@@ -2322,6 +2588,8 @@ const _DIMENSION_META = {
     vix_regime:        { icon: "⚡", label: "VIX Regime" },
     macro_global:      { icon: "🌍", label: "Macro & Global" },
     social_contrarian: { icon: "👥", label: "Social Contrarian" },
+    mfe_mae:           { icon: "🎯", label: "MFE / MAE Excursion" },
+    order_flow:        { icon: "🌊", label: "Microstructure & Flow" },
 };
 
 function _verdictBg(v) {

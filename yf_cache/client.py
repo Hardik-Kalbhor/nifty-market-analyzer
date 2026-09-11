@@ -200,3 +200,62 @@ def fetch_daily_bars(
         logger.debug(f"YFCache: Failed to parse bars for {symbol}: {e}")
         _stats["errors"] += 1
         return []
+
+
+def fetch_1min_bars(
+    symbol: str = "^NSEI",
+    timeout: float = 4.0,
+) -> list[dict[str, Any]]:
+    """
+    Fetch intraday 1-minute OHLCV bars for `symbol` from Yahoo Finance.
+    Results cached in memory for 60 seconds.
+    Returns list of {"timestamp": int, "open": float, "high": float, "low": float, "close": float, "volume": int}.
+    """
+    bucket_60s = int(time.time() // 60)
+    mem_key = _cache_key("bars_1m", symbol, bucket_60s)
+    cached = _get(mem_key)
+    if cached is not _MISS:
+        return cached
+
+    url_tpl = (
+        f"https://{{host}}/v8/finance/chart/{symbol}"
+        f"?interval=1m&range=1d"
+    )
+    data = _http_get_with_retry(url_tpl, timeout)
+    if not data:
+        return []
+
+    try:
+        result = data.get("chart", {}).get("result", [])
+        if not result:
+            return []
+        chart = result[0]
+        timestamps = chart.get("timestamp", [])
+        ohlcv = chart.get("indicators", {}).get("quote", [{}])[0]
+        opens  = ohlcv.get("open",   [])
+        highs  = ohlcv.get("high",   [])
+        lows   = ohlcv.get("low",    [])
+        closes = ohlcv.get("close",  [])
+        vols   = ohlcv.get("volume", [])
+
+        bars = []
+        for i, ts in enumerate(timestamps):
+            open_px  = opens[i]  if i < len(opens)  else None
+            close_px = closes[i] if i < len(closes) else None
+            if open_px is None or close_px is None:
+                continue
+            bars.append({
+                "timestamp": ts,
+                "open":   round(float(open_px), 2),
+                "high":   round(float(highs[i]), 2)  if i < len(highs) and highs[i] else round(float(open_px), 2),
+                "low":    round(float(lows[i]), 2)   if i < len(lows) and lows[i] else round(float(close_px), 2),
+                "close":  round(float(close_px), 2),
+                "volume": int(vols[i]) if i < len(vols) and vols[i] else 0,
+            })
+
+        _set(mem_key, bars, 60.0)
+        return bars
+    except Exception as e:
+        logger.debug(f"YFCache: Failed to parse 1m bars for {symbol}: {e}")
+        return []
+

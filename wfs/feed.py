@@ -32,7 +32,7 @@ class HistoricalDataFeed:
     def __init__(self, history_dir: Optional[str] = None):
         self.history_dir = history_dir or os.getenv(
             "HISTORY_DIR",
-            os.path.join(os.path.dirname(__file__), "history")
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "history")
         )
         os.makedirs(self.history_dir, exist_ok=True)
         self.cache_file = Path(self.history_dir) / "historical_simulation_data.json"

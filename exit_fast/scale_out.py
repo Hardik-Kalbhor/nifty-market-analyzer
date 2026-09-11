@@ -16,9 +16,9 @@ def _build_scale_out_plan(verdict: str, entry_spot: float, trailing_sl: float, i
             "tier_2": f"Move stop-loss on {rem_pct} lots strictly to {cost_str} for breakeven capital defense.",
             "tier_3": f"Trail {runner_pct} lots at {trail_str} for runner continuation (Momentum Hawk runner).",
         }
-    elif verdict in ["FULL_EXIT", "PRE_CLOSE_EXIT", "EMERGENCY_EXIT"]:
+    elif verdict in ["FULL_EXIT", "PRE_CLOSE_EXIT", "EMERGENCY_EXIT", "STAGNATION_EXIT"]:
         return {
-            "tier_1": "Exit 100% open lots immediately at market to halt structural loss.",
+            "tier_1": "Exit 100% open lots immediately at market to halt structural loss or liberate stagnant capital.",
             "tier_2": "Cancel all open broker orders in trading terminal.",
             "tier_3": "Do not initiate re-entry until market structure confirms reversal.",
         }

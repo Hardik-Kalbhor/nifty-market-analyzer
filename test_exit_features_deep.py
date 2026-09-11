@@ -38,11 +38,19 @@ class TestExitFeaturesDeep(unittest.TestCase):
         # Patch IST time to 11:30 AM so unit tests are immune to real-world 15:15 market close cutoffs
         import pytz
         from datetime import datetime
-        self.patcher = patch("exit_fast_path._get_now_ist", return_value=datetime(2026, 9, 9, 11, 30, tzinfo=pytz.timezone("Asia/Kolkata")))
-        self.patcher.start()
+        fake_now = datetime(2026, 9, 9, 11, 30, tzinfo=pytz.timezone("Asia/Kolkata"))
+        self.patchers = [
+            patch("exit_fast.rules_critical._get_now_ist", return_value=fake_now),
+            patch("exit_fast.rules_new._get_now_ist", return_value=fake_now),
+            patch("exit_fast.constants._get_now_ist", return_value=fake_now),
+            patch("exit_fast_path._get_now_ist", return_value=fake_now),
+        ]
+        for p in self.patchers:
+            p.start()
 
     def tearDown(self):
-        self.patcher.stop()
+        for p in self.patchers:
+            p.stop()
 
     # ── 1. Null, Empty, and Corrupted Input Safety ──────────────────────────
     def test_fast_path_empty_and_null_inputs(self):

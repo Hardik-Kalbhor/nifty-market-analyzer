@@ -18,8 +18,52 @@ from .validation import _validate_and_ground_output
 from .context import build_exit_prompt_context
 from .scale_out import generate_tiered_scale_out_plan
 from .resolution import _resolve_dimension_conflict
+from .enricher import enrich_position
+from .eci_scorer import compute_eci_score
+from .session_manager import get_trade_session_manager
 
 logger = logging.getLogger(__name__)
+
+
+def _finalize_exit_result(
+    result: dict[str, Any],
+    position: dict[str, Any],
+    live_signals: dict[str, Any],
+    session_mgr: Any = None,
+) -> dict[str, Any]:
+    """Attach numeric ECI score, breakdown, urgency, and quantitative tracking attributes."""
+    final_res = dict(result)
+    eci_score, eci_breakdown, urgency = compute_eci_score(final_res, position, live_signals)
+    final_res["eci_score"] = eci_score
+    final_res["eci_breakdown"] = eci_breakdown
+    final_res["urgency"] = urgency
+
+    # Quantitative telemetry fields
+    final_res["session_id"] = position.get("session_id")
+    final_res["mfe_pct"] = position.get("mfe_pct", 0.0)
+    final_res["mae_pct"] = position.get("mae_pct", 0.0)
+    final_res["mfe_r"] = position.get("mfe_r", 0.0)
+    final_res["current_r"] = position.get("current_r", 0.0)
+    final_res["mfe_locked"] = position.get("mfe_locked", False)
+    final_res["elapsed_minutes"] = position.get("elapsed_minutes", 0.0)
+    final_res["atr_trail_level"] = position.get("atr_trail_level")
+    final_res["coi_alert"] = final_res.get("coi_alert") or position.get("coi_alert") or live_signals.get("coi_alert")
+    final_res["coi_call_change_pct"] = live_signals.get("coi_call_change_pct", 0.0)
+    final_res["coi_put_change_pct"] = live_signals.get("coi_put_change_pct", 0.0)
+    final_res["cvd_divergence"] = live_signals.get("cvd_divergence", "NEUTRAL")
+
+    # Stateful session poll update
+    if session_mgr and final_res.get("session_id"):
+        live_spot = float(live_signals.get("nifty_spot") or position.get("entry_spot") or 0.0)
+        session_mgr.record_poll(
+            final_res["session_id"],
+            live_spot,
+            final_res.get("verdict", "HOLD"),
+            eci_score=eci_score,
+        )
+
+    return final_res
+
 
 def evaluate_exit_with_ai(
     position: dict[str, Any],
@@ -31,12 +75,19 @@ def evaluate_exit_with_ai(
 ) -> dict[str, Any]:
     """
     Main evaluation pipeline:
-    1. Stage 1: Deterministic Fast-Path (0-10ms) — 9 safety rules (including Contrarian Traps)
+    0. Stage 0: Quantitative Position & Session Enrichment (MFE/MAE/ATR/Elapsed)
+    1. Stage 1: Deterministic Fast-Path (0-10ms) — 14 safety rules (including Contrarian Traps)
     2. Stage 2: Heavyweight & Context Aggregation (≤350ms)
-    3. Stage 3: Single enriched multi-perspective AI call (Groq → Gemini fallback) (≤1200ms)
+    3. Stage 3: Enriched multi-perspective AI call (Groq → Gemini fallback) (≤1200ms)
     4. Stage 4: Multi-Persona Exit Debate Committee & Weighted Conflict Resolution
     5. Stage 5: Rule-Based Fallback Engine
+    6. Stage 6: Exit Conviction Index (ECI 0-100) Quantitative Scoring
     """
+    session_mgr = get_trade_session_manager()
+
+    # --- STAGE 0: Enrich Position with MFE/MAE/ATR & Session State ---
+    position = enrich_position(position, live_signals, session_mgr=session_mgr)
+
     # Ingest Social Sentiment and Contrarian Signals
     if social_sentiment is None:
         try:
@@ -78,9 +129,11 @@ def evaluate_exit_with_ai(
                 "vix_regime": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Risk control"},
                 "macro_global": {"verdict": fast_result.get("verdict", "EXIT"), "note": "Deterministic safety rule"},
                 "social_contrarian": {"verdict": fast_result.get("verdict", "EXIT"), "note": fast_result.get("contrarian_alert", "Neutral")},
+                "mfe_mae": {"verdict": fast_result.get("verdict", "EXIT"), "note": f"MFE R: {position.get('mfe_r', 0)}R"},
+                "order_flow": {"verdict": fast_result.get("verdict", "EXIT"), "note": fast_result.get("coi_alert", "Microstructure checked")},
             }
         logger.info(f"⚡ Fast-Path Triggered: {fast_result['verdict']}")
-        return fast_result
+        return _finalize_exit_result(fast_result, position, live_signals, session_mgr=session_mgr)
 
     # --- STAGE 2: Heavyweight Constituent Scrape ---
     heavyweights = fetch_heavyweight_stocks()
@@ -185,10 +238,10 @@ def evaluate_exit_with_ai(
             final_res["social_sentiment"] = social_sentiment
             final_res["cognigraph_regime_precedent"] = cognigraph_summary
             logger.info(f"🎯 Final Exit Advisor Decision: {final_res['verdict']} ({final_res['confidence']}%)")
-            return final_res
+            return _finalize_exit_result(final_res, position, live_signals, session_mgr=session_mgr)
         except Exception as deb_err:
             logger.warning(f"Exit Debate Committee error: {deb_err} — using baseline AI candidate.")
-            return ai_candidate
+            return _finalize_exit_result(ai_candidate, position, live_signals, session_mgr=session_mgr)
 
     # --- STAGE 5: Deterministic Mathematical Fallback ---
     logger.warning("All AI models offline/timed out. Engaging Rule-Based Fallback Advisor.")
@@ -205,6 +258,8 @@ def evaluate_exit_with_ai(
             "vix_regime": {"verdict": fallback.get("verdict", "HOLD"), "note": "Range-bound control"},
             "macro_global": {"verdict": fallback.get("verdict", "HOLD"), "note": "Rule fallback"},
             "social_contrarian": {"verdict": fallback.get("verdict", "HOLD"), "note": "Contrarian guardrail checked"},
+            "mfe_mae": {"verdict": fallback.get("verdict", "HOLD"), "note": f"Current R: {position.get('current_r', 0)}R"},
+            "order_flow": {"verdict": fallback.get("verdict", "HOLD"), "note": f"CVD: {live_signals.get('cvd_divergence', 'NEUTRAL')}"},
         }
-    return fallback
+    return _finalize_exit_result(fallback, position, live_signals, session_mgr=session_mgr)
 

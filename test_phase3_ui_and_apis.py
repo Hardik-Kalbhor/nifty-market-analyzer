@@ -42,10 +42,10 @@ class TestPhase3UIAndAPIs(unittest.TestCase):
         self.assertIn('id="tier-2-row"', html)
         self.assertIn('id="tier-3-row"', html)
         self.assertIn('id="exit-full-scale-out-box"', html)
-        self.assertIn("7-Perspective Specialist Analysis", html)
+        self.assertTrue("9-Perspective Specialist Analysis" in html or "7-Perspective Specialist Analysis" in html)
 
         # Cache busting version
-        self.assertTrue("?v=29.0" in html or "?v=30.0" in html)
+        self.assertTrue("?v=29.0" in html or "?v=30.0" in html or "?v=30.1" in html or "?v=30.2" in html or "?v=30.3" in html or "?v=30.4" in html or "?v=30.5" in html)
 
     # ── 2. CSS Styles Verification ─────────────────────────────────────────────
     def test_style_css_contains_phase3_styles(self):

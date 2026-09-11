@@ -15,6 +15,7 @@ app = Flask(
     template_folder=os.path.join(_BASE_DIR, "templates"),
     static_folder=os.path.join(_BASE_DIR, "static"),
 )
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB guardrail for Render 512MB RAM
 
 # Start AutoScheduler at module load time so it works under both
 # `python server.py` (development) and Gunicorn (production on Render).

@@ -16,6 +16,7 @@ from .exit_constants import (
     _EXIT_GUARDIAN_SYSTEM,
     _EXIT_TACTICAL_SYSTEM,
 )
+from .constants import _safe_float
 from .exit_context import (
     _build_exit_debate_context,
     _determine_exit_consensus,
@@ -146,11 +147,28 @@ Synthesize the 3 analyst submissions into a final calibrated exit recommendation
         final_verdict, consensus, fallback_note = _determine_exit_consensus(
             runner_res, guardian_res, tactical_res, risk_profile
         )
-        final_action = f"Execute {final_verdict.replace('_', ' ').title()}. Committee consensus: {consensus}."
         final_sl = tactical_res.get("suggested_sl") or stage1_result.get("trailing_sl") or live_spot
         conf_adj = +5 if consensus == "UNANIMOUS" else (-10 if consensus == "SPLIT" else 0)
         judge_rationale = f"Gemini Judge offline — {fallback_note}"
         scale_out_plan = None
+
+        if stage1_result.get("action") and final_verdict == stage1_result.get("verdict"):
+            final_action = stage1_result["action"]
+        else:
+            sl_val = final_sl or live_spot
+            sl_str = f"₹{sl_val:,.1f}" if sl_val > 0 else "entry cost"
+            if final_verdict in ("TRAIL_SL_TIGHT", "TRAIL_SL_TO_COST"):
+                final_action = f"1. Trail stop-loss to {sl_str}. 2. Hold position open; do not add or scale."
+            elif final_verdict == "PARTIAL_BOOK_70":
+                final_action = f"1. Book 70% profit at market. 2. Trail stop-loss to {sl_str} on remaining 30%."
+            elif final_verdict == "PARTIAL_BOOK_50":
+                final_action = f"1. Book 50% profit at market. 2. Trail stop-loss to {sl_str} on remaining 50%."
+            elif final_verdict == "HOLD_AND_RIDE":
+                final_action = f"1. Hold position with stop-loss at {sl_str}. 2. Let profits run toward target."
+            elif final_verdict in ("FULL_EXIT", "EMERGENCY_EXIT", "PRE_CLOSE_EXIT"):
+                final_action = "1. Exit 100% position immediately at market. 2. Cancel all pending orders."
+            else:
+                final_action = f"1. Maintain {final_verdict.replace('_', ' ').title()} with stop-loss at {sl_str}."
 
     if not scale_out_plan or not isinstance(scale_out_plan, dict) or "tier_1" not in scale_out_plan:
         scale_out_plan = build_tiered_scale_out_plan(

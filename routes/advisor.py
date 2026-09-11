@@ -92,6 +92,89 @@ def exit_advisor():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/api/exit-advisor/poll", methods=["POST"])
+def poll_exit_advisor():
+    """
+    Polls an active trade session by session_id.
+    Fetches live signals, updates MFE/MAE excursions, and re-evaluates exit conviction.
+    """
+    import time
+    start_t = time.time()
+    try:
+        payload = request.get_json(force=True) or {}
+        session_id = payload.get("session_id")
+        from exit.session_manager import get_trade_session_manager
+        sm = get_trade_session_manager()
+        sess = sm.get_session(session_id) if session_id else None
+        if not sess:
+            return jsonify({"status": "error", "message": f"Session {session_id} not found or inactive"}), 404
+
+        pos = dict(sess.get("position", {}))
+        for k, v in payload.items():
+            if k != "session_id" and v is not None:
+                pos[k] = v
+        pos["session_id"] = session_id
+
+        market_signals = fetch_all_market_signals()
+        fii_dii_data = fetch_fii_dii_data()
+
+        from exit_analyzer import evaluate_exit_with_ai
+        result = evaluate_exit_with_ai(pos, market_signals, [], fii_dii_data)
+        elapsed_ms = round((time.time() - start_t) * 1000, 1)
+        result["latency_ms"] = elapsed_ms
+        result["timestamp_ist"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        return jsonify({"status": "success", "data": result})
+    except Exception as e:
+        logger.error(f"Poll Exit Advisor error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/exit-advisor/close", methods=["POST"])
+def close_exit_advisor():
+    """
+    Manually mark an active trade session as CLOSED ("Exit" button).
+    Computes realized P&L and stops active tracking.
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+        session_id = payload.get("session_id")
+        exit_spot = payload.get("exit_spot")
+        exit_premium = payload.get("exit_premium")
+        reason = payload.get("reason", "MANUAL_EXIT")
+
+        if not session_id:
+            return jsonify({"status": "error", "message": "session_id is required"}), 400
+
+        from exit.session_manager import get_trade_session_manager
+        sm = get_trade_session_manager()
+        closed_sess = sm.close_session(session_id, exit_spot=exit_spot, exit_premium=exit_premium, reason=reason)
+        if not closed_sess:
+            return jsonify({"status": "error", "message": f"Session {session_id} not found"}), 404
+
+        return jsonify({"status": "success", "message": "Trade marked as exited", "session": closed_sess})
+    except Exception as e:
+        logger.error(f"Close Exit Advisor error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/exit-advisor/status", methods=["GET"])
+def exit_advisor_status():
+    """Returns all active trade sessions being tracked."""
+    try:
+        from exit.session_manager import get_trade_session_manager
+        sm = get_trade_session_manager()
+        active = sm.get_active_sessions()
+        return jsonify({
+            "status": "success",
+            "active_count": len(active),
+            "active_sessions": active,
+        })
+    except Exception as e:
+        logger.error(f"Exit Advisor status error: {e}\n{traceback.format_exc()}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/extract-screenshot", methods=["POST"])
 def extract_screenshot():
     """
