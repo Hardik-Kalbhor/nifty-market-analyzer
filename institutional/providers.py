@@ -2,12 +2,14 @@
 institutional/providers.py — Institutional desk provider scrapers and Street Consensus builder.
 """
 
+import os
 import time
 import logging
 from typing import Optional
 from .parsers import (
     _et_search_urls, _fetch_article_body, _clean_text, _rss_articles,
-    _extract_levels, _classify_bias, _classify_gap, _first_sentence
+    _extract_levels, _classify_bias, _classify_gap, _first_sentence,
+    _llm_extract_call,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,29 +60,56 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         return None
 
     combined_all = " ".join(matching_texts)
-    levels = _extract_levels(combined_all)
-    bias = _classify_bias(combined_all)
-    gap = _classify_gap(bias, combined_all)
 
-    # Split levels into supports and resistances relative to spot (or median)
+    # ── LLM extraction (Groq) → keyword fallback ─────────────────────────────
+    groq_key = os.environ.get("GROQ_API_KEY", "")
+    llm_result = _llm_extract_call(
+        text=combined_all,
+        analyst_name=provider.get("analyst", provider["key"]),
+        nifty_spot=nifty_spot,
+        groq_key=groq_key,
+    )
+
+    if llm_result:
+        # LLM gave us structured output — use it directly
+        return {
+            "next_day_bias": llm_result["bias"],
+            "s1": llm_result.get("s1"),
+            "s2": llm_result.get("s2"),
+            "r1": llm_result.get("r1"),
+            "r2": llm_result.get("r2"),
+            "expected_gap": llm_result.get("expected_gap", "Flat"),
+            "thesis": llm_result.get("thesis") or best_thesis or _first_sentence(best_title or combined_all),
+            "source_headline": best_title,
+            "source_link": best_link,
+            "raw_levels_found": llm_result.get("raw_levels", [])[:10],
+            "extraction_engine": "LLM",
+        }
+
+    # ── Keyword fallback (Groq offline / no key / rate-limited) ──────────────
+    logger.info(f"[Radar] {provider['key']}: using keyword extraction fallback")
+    levels = _extract_levels(combined_all)
+    bias   = _classify_bias(combined_all)
+    gap    = _classify_gap(bias, combined_all)
+
     if nifty_spot and levels:
-        supports = [lvl for lvl in levels if lvl < nifty_spot]
+        supports    = [lvl for lvl in levels if lvl < nifty_spot]
         resistances = [lvl for lvl in levels if lvl >= nifty_spot]
     elif len(levels) >= 2:
-        mid_idx = len(levels) // 2
-        supports = levels[:mid_idx]
+        mid_idx     = len(levels) // 2
+        supports    = levels[:mid_idx]
         resistances = levels[mid_idx:]
     elif len(levels) == 1:
-        supports = []
+        supports    = []
         resistances = levels
     else:
-        supports = []
+        supports    = []
         resistances = []
 
-    s1 = supports[-1] if len(supports) >= 1 else None
-    s2 = supports[-2] if len(supports) >= 2 else None
-    r1 = resistances[0] if len(resistances) >= 1 else None
-    r2 = resistances[1] if len(resistances) >= 2 else None
+    s1 = supports[-1]    if len(supports)    >= 1 else None
+    s2 = supports[-2]    if len(supports)    >= 2 else None
+    r1 = resistances[0]  if len(resistances) >= 1 else None
+    r2 = resistances[1]  if len(resistances) >= 2 else None
 
     return {
         "next_day_bias": bias,
@@ -93,7 +122,9 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         "source_headline": best_title,
         "source_link": best_link,
         "raw_levels_found": levels[:10],
+        "extraction_engine": "keywords",
     }
+
 
 
 

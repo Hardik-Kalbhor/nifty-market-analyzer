@@ -151,3 +151,101 @@ def _rss_articles(query: str, max_items: int = 6) -> list[dict]:
 # Per-Provider Tactical Desk Call Builder
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# LLM-Powered Extraction (Groq → keyword fallback)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+_GROQ_URL    = "https://api.groq.com/openai/v1/chat/completions"
+_GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+
+_LLM_SYSTEM = """You are an expert Indian equity market analyst reading brokerage/institutional desk reports on Nifty 50.
+Your job: extract the analyst's next-day view and key price levels from the text provided.
+
+CRITICAL RULES:
+1. Understand NEGATION — "does NOT expect a rally" is BEARISH, not BULLISH.
+2. Understand CONDITIONAL levels — "if Nifty holds 23,200, target 23,500" → S1=23200, R1=23500.
+3. Understand CONTRARIAN phrasing — "sell on rallies near 23,600" → BEARISH with R1=23,600 (resistance to sell into).
+4. Only extract levels explicitly mentioned as support/resistance/target/stop by the analyst. Do NOT invent levels.
+5. Bias must be exactly one of: "BULLISH", "BEARISH", "RANGEBOUND".
+6. thesis must be 1 concise sentence quoting the analyst's actual call (not the article title).
+7. All level fields are integers or null. raw_levels is a list of all distinct Nifty levels mentioned.
+
+Return ONLY valid JSON matching this exact schema (no markdown, no explanation):
+{
+  "bias": "BULLISH" | "BEARISH" | "RANGEBOUND",
+  "s1": integer or null,
+  "s2": integer or null,
+  "r1": integer or null,
+  "r2": integer or null,
+  "expected_gap": "Positive" | "Negative" | "Flat",
+  "thesis": "string — analyst's actual call in one sentence",
+  "raw_levels": [list of integers]
+}"""
+
+
+def _llm_extract_call(
+    text: str,
+    analyst_name: str,
+    nifty_spot: Optional[float],
+    groq_key: str,
+) -> Optional[dict]:
+    """
+    Send article text to Groq LLM and get structured bias + levels JSON back.
+    Returns a dict with keys: bias, s1, s2, r1, r2, expected_gap, thesis, raw_levels.
+    Returns None on any failure (caller will fall back to keyword extraction).
+    """
+    if not groq_key or not text:
+        return None
+
+    # Trim to avoid token limit issues — first 3,500 chars is plenty for bias
+    snippet = text[:3500].strip()
+    user_msg = f"Analyst: {analyst_name}\nNifty current spot: {nifty_spot or 'unknown'}\n\nArticle text:\n\"\"\"\n{snippet}\n\"\"\""
+
+    headers = {
+        "Authorization": f"Bearer {groq_key}",
+        "Content-Type": "application/json",
+    }
+
+    for model in _GROQ_MODELS:
+        try:
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": _LLM_SYSTEM},
+                    {"role": "user",   "content": user_msg},
+                ],
+                "temperature": 0.1,   # near-deterministic for extraction tasks
+                "response_format": {"type": "json_object"},
+                "max_tokens": 300,
+            }
+            import json as _json
+            resp = requests.post(_GROQ_URL, headers=headers, json=payload, timeout=9)
+            if resp.status_code == 200:
+                content = resp.json()["choices"][0]["message"]["content"]
+                parsed = _json.loads(content)
+                # Validate required keys and bias value
+                if parsed.get("bias") in {"BULLISH", "BEARISH", "RANGEBOUND"}:
+                    # Coerce level fields to int or None
+                    for field in ("s1", "s2", "r1", "r2"):
+                        v = parsed.get(field)
+                        try:
+                            parsed[field] = int(v) if v is not None else None
+                        except (TypeError, ValueError):
+                            parsed[field] = None
+                    raw = parsed.get("raw_levels", [])
+                    parsed["raw_levels"] = [int(x) for x in raw if x is not None]
+                    logger.info(
+                        f"[Radar LLM] {analyst_name} ({model}): "
+                        f"bias={parsed['bias']} s1={parsed.get('s1')} r1={parsed.get('r1')}"
+                    )
+                    return parsed
+                logger.debug(f"[Radar LLM] {analyst_name} ({model}): invalid bias in response")
+            elif resp.status_code == 429:
+                logger.warning(f"[Radar LLM] {model}: 429 rate limit — trying next model")
+            else:
+                logger.debug(f"[Radar LLM] {model}: HTTP {resp.status_code}")
+        except Exception as e:
+            logger.debug(f"[Radar LLM] {analyst_name} ({model}) error: {e}")
+
+    logger.warning(f"[Radar LLM] All models failed for {analyst_name} — keyword fallback will be used")
+    return None
