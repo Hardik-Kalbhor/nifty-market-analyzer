@@ -14,10 +14,10 @@ from .parsers import (
 
 logger = logging.getLogger(__name__)
 
-def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> Optional[dict]:
+def _fetch_provider_raw(provider: dict) -> Optional[dict]:
     """
     Fetch articles for this provider from ET search and Google News RSS,
-    extract full body/summaries, parse levels across matching articles, and determine bias + thesis.
+    resolving canonical bodies where available. Returns a raw article bundle dict.
     """
     kw_match = provider["kw_match"]
     matching_texts: list[str] = []
@@ -43,8 +43,6 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         time.sleep(0.2)
 
     # --- Supplementary / Fallback: Google News RSS ---
-    # RSS summary is usually an HTML snippet like <a href="actual-url">title</a>
-    # We extract the actual source URL and fetch its full body for level extraction.
     rss_articles = _rss_articles(provider["rss_query"], max_items=10)
     for art in rss_articles:
         title   = art.get("title", "")
@@ -60,14 +58,12 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         actual_link = art.get("link", "#")
         if href_match:
             candidate_url = href_match.group(1)
-            # Only follow if it looks like a real article URL (not a google redirect)
             if candidate_url.startswith("http") and "google.com" not in candidate_url:
                 actual_link = candidate_url
                 article_body = _fetch_article_body(candidate_url)
                 if article_body:
                     logger.info(f"[Radar] RSS body fetched from {candidate_url[:60]}... ({len(article_body)} chars)")
 
-        # Merge: use real body if we got it, otherwise fall back to title+summary snippet
         text_to_add = article_body if article_body else combined
         matching_texts.append(text_to_add)
 
@@ -80,38 +76,28 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         logger.info(f"No content found for provider: {provider['key']}")
         return None
 
-    combined_all = " ".join(matching_texts)
+    return {
+        "key": provider["key"],
+        "name": provider["name"],
+        "analyst": provider["analyst"],
+        "matching_texts": matching_texts,
+        "combined_text": " ".join(matching_texts),
+        "best_title": best_title,
+        "best_link": best_link,
+        "best_thesis": best_thesis,
+    }
 
-    # ── LLM extraction (Groq) → keyword fallback ─────────────────────────────
-    groq_key = os.environ.get("GROQ_API_KEY", "")
-    llm_result = _llm_extract_call(
-        text=combined_all,
-        analyst_name=provider.get("analyst", provider["key"]),
-        nifty_spot=nifty_spot,
-        groq_key=groq_key,
-    )
 
-    if llm_result:
-        # LLM gave us structured output — use it directly
-        return {
-            "next_day_bias": llm_result["bias"],
-            "s1": llm_result.get("s1"),
-            "s2": llm_result.get("s2"),
-            "r1": llm_result.get("r1"),
-            "r2": llm_result.get("r2"),
-            "expected_gap": llm_result.get("expected_gap", "Flat"),
-            "thesis": llm_result.get("thesis") or best_thesis or _first_sentence(best_title or combined_all),
-            "source_headline": best_title,
-            "source_link": best_link,
-            "raw_levels_found": llm_result.get("raw_levels", [])[:10],
-            "extraction_engine": "LLM",
-        }
-
-    # ── Keyword fallback (Groq offline / no key / rate-limited) ──────────────
-    logger.info(f"[Radar] {provider['key']}: using keyword extraction fallback")
+def _build_provider_call_from_raw(raw: dict, nifty_spot: Optional[float] = None) -> dict:
+    """Deterministic extraction fallback from a raw provider bundle."""
+    combined_all = raw.get("combined_text", "")
     levels = _extract_levels(combined_all)
     bias   = _classify_bias(combined_all)
     gap    = _classify_gap(bias, combined_all)
+
+    # Exclude levels within 5 points of spot to prevent settlement price from being R1/S1
+    if nifty_spot:
+        levels = [lvl for lvl in levels if abs(lvl - nifty_spot) > 5]
 
     if nifty_spot and levels:
         supports    = [lvl for lvl in levels if lvl < nifty_spot]
@@ -139,12 +125,24 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         "r1": r1,
         "r2": r2,
         "expected_gap": gap,
-        "thesis": best_thesis or _first_sentence(best_title or combined_all),
-        "source_headline": best_title,
-        "source_link": best_link,
+        "thesis": raw.get("best_thesis") or _first_sentence(raw.get("best_title") or combined_all),
+        "source_headline": raw.get("best_title", ""),
+        "source_link": raw.get("best_link", "#"),
         "raw_levels_found": levels[:10],
-        "extraction_engine": "keywords",
+        "extraction_engine": "deterministic",
     }
+
+
+def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> Optional[dict]:
+    """
+    Fetch articles for this provider and extract call dict.
+    Maintained for backward compatibility and standalone unit tests.
+    """
+    raw = _fetch_provider_raw(provider)
+    if not raw:
+        return None
+    return _build_provider_call_from_raw(raw, nifty_spot=nifty_spot)
+
 
 
 

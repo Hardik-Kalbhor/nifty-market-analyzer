@@ -176,5 +176,87 @@ class TestCacheRoundTrip(unittest.TestCase):
         self.assertEqual(result["consensus_bias"], "BEARISH")
 
 
+class TestInstitutionalSynthesisAgent(unittest.TestCase):
+    def test_validate_agent_output_success(self):
+        from institutional.agent import _validate_agent_output
+        mock_parsed = {
+            "provider_calls": {
+                "religare": {
+                    "next_day_bias": "BEARISH",
+                    "s1": 23100,
+                    "s2": 23000,
+                    "r1": 23400,
+                    "r2": 23600,
+                    "expected_gap": "Flat",
+                    "thesis": "Structure remains weak; immediate resistance at 23,400-23,600 with key support at 23,000-23,100.",
+                    "raw_levels": [23000, 23100, 23400, 23600],
+                },
+                "anand_rathi": {
+                    "next_day_bias": "BULLISH",
+                    "s1": 23150,
+                    "s2": 23000,
+                    "r1": 23500,
+                    "r2": 23700,
+                    "expected_gap": "Positive",
+                    "thesis": "Buy on dips near 23,150 support.",
+                    "raw_levels": [23150, 23500],
+                }
+            },
+            "consensus": {
+                "next_day_bias": "BEARISH",
+                "bull_pct": 33,
+                "bear_pct": 67,
+                "s1": "23,000 — 23,100",
+                "s2": "22,800",
+                "r1": "23,400 — 23,600",
+                "r2": "23,800",
+                "expected_gap": "Flat",
+                "thesis": "Street consensus leans cautious with 67% bearish tilt.",
+            }
+        }
+        validated = _validate_agent_output(mock_parsed, raw_providers={"religare": {}, "anand_rathi": {}})
+        self.assertIsNotNone(validated)
+        self.assertIn("religare", validated["provider_calls"])
+        self.assertEqual(validated["provider_calls"]["religare"]["next_day_bias"], "BEARISH")
+        self.assertEqual(validated["provider_calls"]["religare"]["s1"], 23100)
+        self.assertEqual(validated["provider_calls"]["religare"]["r1"], 23400)
+        self.assertEqual(validated["consensus"]["next_day_bias"], "BEARISH")
+        self.assertEqual(validated["consensus"]["s1"], "23,000 — 23,100")
+
+    def test_validate_agent_output_malformed(self):
+        from institutional.agent import _validate_agent_output
+        self.assertIsNone(_validate_agent_output(None, {}))
+        self.assertIsNone(_validate_agent_output("string", {}))
+        self.assertIsNone(_validate_agent_output({"provider_calls": {}}, {}))
+
+    def test_deterministic_fallback_used_when_agent_fails(self):
+        from unittest.mock import patch
+        from institutional.radar import fetch_institutional_radar
+
+        sample_raw = {
+            "religare": {
+                "key": "religare",
+                "name": "Religare Broking",
+                "analyst": "Ajit Mishra",
+                "matching_texts": ["Support at 23,100, resistance at 23,500. Structure looks bearish."],
+                "combined_text": "Support at 23,100, resistance at 23,500. Structure looks bearish.",
+                "best_title": "Ajit Mishra Outlook",
+                "best_link": "https://example.com/ajit",
+                "best_thesis": "Structure looks bearish.",
+            }
+        }
+
+        with patch("institutional.radar._fetch_provider_raw", side_effect=lambda p: sample_raw.get(p["key"])), \
+             patch("institutional.radar._run_institutional_synthesis_agent", return_value=None), \
+             patch("institutional.radar._fetch_brokerage_calls", return_value=[]):
+            radar = fetch_institutional_radar(nifty_spot=23200)
+            self.assertIn("religare", radar["provider_calls"])
+            call = radar["provider_calls"]["religare"]
+            self.assertEqual(call["next_day_bias"], "BEARISH")
+            self.assertEqual(call["extraction_engine"], "deterministic")
+            self.assertEqual(radar["consensus_bias"], "BEARISH")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
