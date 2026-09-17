@@ -51,18 +51,32 @@ def _fetch_provider_raw(provider: dict) -> Optional[dict]:
         if not any(kw in combined.lower() for kw in kw_match):
             continue
 
-        # Try to fetch the actual article body from the canonical URL in the summary
-        import re as _re
-        href_match = _re.search(r'href=["\']([^"\']+)["\']', summary)
+        # Decode Google News URL to get canonical publisher article body
+        raw_link = art.get("link", "#")
+        actual_link = raw_link
         article_body = ""
-        actual_link = art.get("link", "#")
-        if href_match:
-            candidate_url = href_match.group(1)
-            if candidate_url.startswith("http") and "google.com" not in candidate_url:
-                actual_link = candidate_url
-                article_body = _fetch_article_body(candidate_url)
-                if article_body:
-                    logger.info(f"[Radar] RSS body fetched from {candidate_url[:60]}... ({len(article_body)} chars)")
+
+        if "news.google.com" in raw_link:
+            try:
+                from googlenewsdecoder import gnewsdecoder
+                dec = gnewsdecoder(raw_link)
+                if dec.get("status") and dec.get("decoded_url"):
+                    actual_link = dec["decoded_url"]
+                    article_body = _fetch_article_body(actual_link)
+                    if article_body:
+                        logger.info(f"[Radar] Decoded Google News URL -> {actual_link[:60]} ({len(article_body)} chars)")
+            except Exception as _dec_err:
+                logger.debug(f"[Radar] gnewsdecoder error: {_dec_err}")
+
+        # Secondary fallback: check href in summary HTML
+        if not article_body:
+            import re as _re
+            href_match = _re.search(r'href=["\']([^"\']+)["\']', summary)
+            if href_match:
+                candidate_url = href_match.group(1)
+                if candidate_url.startswith("http") and "google.com" not in candidate_url:
+                    actual_link = candidate_url
+                    article_body = _fetch_article_body(candidate_url)
 
         text_to_add = article_body if article_body else combined
         matching_texts.append(text_to_add)
@@ -71,6 +85,7 @@ def _fetch_provider_raw(provider: dict) -> Optional[dict]:
             best_title  = title
             best_link   = actual_link
             best_thesis = _first_sentence(title)
+
 
     if not matching_texts:
         logger.info(f"No content found for provider: {provider['key']}")

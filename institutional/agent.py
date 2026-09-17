@@ -23,8 +23,22 @@ logger = logging.getLogger(__name__)
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
-_GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
+_GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
 _GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest"]
+
+def _clean_json_text(text: str) -> str:
+    """Extract and clean raw JSON from model output, removing markdown fences or conversational preambles."""
+    t = text.strip()
+    if t.startswith("```"):
+        import re as _re
+        t = _re.sub(r"^```(?:json)?\s*", "", t)
+        t = _re.sub(r"\s*```$", "", t)
+    start = t.find("{")
+    end = t.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return t[start:end + 1]
+    return t.strip()
+
 
 _INSTITUTIONAL_SYSTEM_PROMPT = """You are the Chief Institutional Equity Strategist analyzing Indian brokerage & technical desk notes on NIFTY 50 for the upcoming trading session.
 You have been provided with published reports and market outlooks from leading institutional desks (e.g., Religare Broking / Ajit Mishra, Anand Rathi / Ganesh Dongre, HDFC Securities / Nagaraj Shetti, IndiaCharts / Rohit Srivastava).
@@ -109,7 +123,7 @@ def _run_institutional_synthesis_agent(
     if not raw_providers:
         return None
 
-    # Construct user context with all desk texts
+    # Construct user context with concise desk texts (800 chars each prevents TPM limit errors)
     context_lines = [
         f"CURRENT NIFTY SPOT: {nifty_spot or 'Unknown'}",
         "\nINSTITUTIONAL BROKERAGE & TECHNICAL DESK NOTES:\n",
@@ -119,7 +133,7 @@ def _run_institutional_synthesis_agent(
         name = data.get("name", key)
         analyst = data.get("analyst", "")
         title = data.get("best_title", "")
-        text = data.get("combined_text", "")[:3200].strip()
+        text = data.get("combined_text", "")[:800].strip()
         context_lines.append(f"=== DESK: {name} ({analyst}) [key: {key}] ===")
         if title:
             context_lines.append(f"Headline: {title}")
@@ -145,19 +159,18 @@ def _run_institutional_synthesis_agent(
                         {"role": "user",   "content": user_content},
                     ],
                     "temperature": 0.1,
-                    "response_format": {"type": "json_object"},
-                    "max_tokens": 1200,
                 }
                 resp = requests.post(_GROQ_URL, headers=headers, json=payload, timeout=14)
                 if resp.status_code == 200:
                     raw_json = resp.json()["choices"][0]["message"]["content"]
-                    parsed = json.loads(raw_json)
+                    cleaned = _clean_json_text(raw_json)
+                    parsed = json.loads(cleaned)
                     validated = _validate_agent_output(parsed, raw_providers)
                     if validated:
                         logger.info(f"🏛️ Institutional Agent ({model}): synthesized {len(validated['provider_calls'])} desks successfully")
                         return validated
-                elif resp.status_code == 429:
-                    logger.warning(f"Institutional Agent Groq ({model}): 429 rate limit — trying next model")
+                elif resp.status_code in (413, 429):
+                    logger.warning(f"Institutional Agent Groq ({model}): HTTP {resp.status_code} — trying next model")
                 else:
                     logger.debug(f"Institutional Agent Groq ({model}): HTTP {resp.status_code}")
             except Exception as e:
@@ -176,21 +189,23 @@ def _run_institutional_synthesis_agent(
         for model in _GEMINI_MODELS:
             try:
                 url = _GEMINI_URL.format(model=model, key=gemini_key)
-                resp = requests.post(url, headers=headers, json=payload, timeout=16)
+                resp = requests.post(url, headers=headers, json=payload, timeout=14)
                 if resp.status_code == 200:
                     raw_json = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    parsed = json.loads(raw_json)
+                    cleaned = _clean_json_text(raw_json)
+                    parsed = json.loads(cleaned)
                     validated = _validate_agent_output(parsed, raw_providers)
                     if validated:
                         logger.info(f"🏛️ Institutional Agent Gemini ({model}): synthesized {len(validated['provider_calls'])} desks successfully")
                         return validated
-                elif resp.status_code == 429:
-                    logger.warning(f"Institutional Agent Gemini ({model}): 429 rate limit")
+                elif resp.status_code in (413, 429):
+                    logger.warning(f"Institutional Agent Gemini ({model}): HTTP {resp.status_code}")
             except Exception as e:
                 logger.debug(f"Institutional Agent Gemini ({model}) error: {e}")
 
     logger.warning("Institutional Agent: All AI models offline or unavailable")
     return None
+
 
 
 def _validate_agent_output(parsed: Any, raw_providers: dict) -> Optional[dict]:
