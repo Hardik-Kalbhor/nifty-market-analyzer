@@ -43,17 +43,38 @@ def _build_provider_call(provider: dict, nifty_spot: Optional[float] = None) -> 
         time.sleep(0.2)
 
     # --- Supplementary / Fallback: Google News RSS ---
+    # RSS summary is usually an HTML snippet like <a href="actual-url">title</a>
+    # We extract the actual source URL and fetch its full body for level extraction.
     rss_articles = _rss_articles(provider["rss_query"], max_items=10)
     for art in rss_articles:
-        title = art.get("title", "")
+        title   = art.get("title", "")
         summary = art.get("summary", "")
         combined = title + " " + summary
-        if any(kw in combined.lower() for kw in kw_match):
-            matching_texts.append(combined)
-            if not best_title:
-                best_title = title
-                best_link = art.get("link", "#")
-                best_thesis = _first_sentence(title)
+        if not any(kw in combined.lower() for kw in kw_match):
+            continue
+
+        # Try to fetch the actual article body from the canonical URL in the summary
+        import re as _re
+        href_match = _re.search(r'href=["\']([^"\']+)["\']', summary)
+        article_body = ""
+        actual_link = art.get("link", "#")
+        if href_match:
+            candidate_url = href_match.group(1)
+            # Only follow if it looks like a real article URL (not a google redirect)
+            if candidate_url.startswith("http") and "google.com" not in candidate_url:
+                actual_link = candidate_url
+                article_body = _fetch_article_body(candidate_url)
+                if article_body:
+                    logger.info(f"[Radar] RSS body fetched from {candidate_url[:60]}... ({len(article_body)} chars)")
+
+        # Merge: use real body if we got it, otherwise fall back to title+summary snippet
+        text_to_add = article_body if article_body else combined
+        matching_texts.append(text_to_add)
+
+        if not best_title:
+            best_title  = title
+            best_link   = actual_link
+            best_thesis = _first_sentence(title)
 
     if not matching_texts:
         logger.info(f"No content found for provider: {provider['key']}")
