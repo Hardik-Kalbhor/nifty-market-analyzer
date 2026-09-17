@@ -2954,6 +2954,18 @@ function renderInstitutionalRadar(data) {
 
 let _instRadarFetching = false;
 
+// Helper: show/hide the stale-data warning badge and refresh button
+function _updateInstStaleBadge(isStale, cacheAgeHours) {
+    const staleBadge = document.getElementById("inst-stale-badge");
+    const refreshBtn = document.getElementById("inst-refresh-btn");
+    if (staleBadge) staleBadge.style.display = isStale ? "inline-block" : "none";
+    if (refreshBtn) refreshBtn.style.display = isStale ? "inline-block" : "none";
+    // Update timestamp colour as a visual hint
+    const tsEl = document.getElementById("inst-radar-timestamp");
+    if (tsEl && isStale) tsEl.style.color = "#fde047";
+    else if (tsEl) tsEl.style.color = "";
+}
+
 // Also expose a standalone fetch for the /api/institutional-radar endpoint
 async function fetchAndRenderInstitutionalRadar() {
     if (_instRadarFetching) return;
@@ -2963,6 +2975,7 @@ async function fetchAndRenderInstitutionalRadar() {
         const json = await res.json();
         if (json && json.data && Object.keys(json.data).length > 0) {
             renderInstitutionalRadar({ institutional_radar: json.data });
+            _updateInstStaleBadge(json.is_stale === true, json.cache_age_hours || 0);
         } else {
             const badge = document.getElementById("inst-consensus-badge");
             if (badge && badge.textContent === "Loading...") {
@@ -2970,6 +2983,8 @@ async function fetchAndRenderInstitutionalRadar() {
                 badge.style.color = "var(--text-muted)";
                 badge.textContent = "⏰ Awaiting Cache";
             }
+            // Show stale/refresh when no data at all
+            _updateInstStaleBadge(true, 999);
         }
     } catch (e) {
         console.warn("Institutional radar fetch failed:", e);
@@ -2983,6 +2998,40 @@ async function fetchAndRenderInstitutionalRadar() {
         _instRadarFetching = false;
     }
 }
+
+// Manual force-refresh triggered by the "Refresh Now" button
+async function manualRefreshInstitutionalRadar() {
+    const refreshBtn = document.getElementById("inst-refresh-btn");
+    const staleBadge = document.getElementById("inst-stale-badge");
+    const tsEl = document.getElementById("inst-radar-timestamp");
+    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.textContent = "⏳ Fetching…"; }
+    if (staleBadge) staleBadge.textContent = "⚠️ Refreshing…";
+    try {
+        // Pass current Nifty spot if available on the page
+        const spotEl = document.getElementById("nifty-spot-display");
+        const spotText = spotEl ? spotEl.textContent.replace(/[^\d.]/g, "") : "";
+        const niftySpot = spotText ? parseFloat(spotText) : null;
+        const res = await fetch("/api/institutional-radar/refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(niftySpot ? { nifty_spot: niftySpot } : {}),
+        });
+        const json = await res.json();
+        if (json && json.data && Object.keys(json.data).length > 0) {
+            renderInstitutionalRadar({ institutional_radar: json.data });
+            _updateInstStaleBadge(false, 0);
+            if (tsEl) { tsEl.style.color = ""; }
+        } else {
+            if (staleBadge) staleBadge.textContent = "⚠️ Refresh failed — retry later";
+            if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = "🔄 Refresh Now"; }
+        }
+    } catch (e) {
+        console.warn("Manual radar refresh failed:", e);
+        if (staleBadge) staleBadge.textContent = "⚠️ Network error";
+        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = "🔄 Refresh Now"; }
+    }
+}
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🧠 CogniGraph Causal Memory & Dreaming Console

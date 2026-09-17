@@ -88,13 +88,55 @@ def get_institutional_radar():
     Serve cached Institutional BTST & Next-Day Prediction Radar.
     Data is written by auto_scheduler.py on its 5 daily runs.
     This endpoint reads from disk — zero scraping, zero latency.
+    If cache is stale (>14h), returns stale data with is_stale=True flag
+    so the UI can surface a warning and offer a manual refresh.
     """
+    import time as _t
+    from institutional.constants import _CACHE_TTL_HOURS
     try:
         history_dir = get_history_dir()
         radar = get_cached_institutional_radar(history_dir, force_refresh=False)
-        return jsonify({"status": "ok", "data": radar})
+        # Determine staleness for UI display
+        fetched_ts = radar.get("fetched_ts", 0) if radar else 0
+        age_hours = (_t.time() - fetched_ts) / 3600 if fetched_ts else 999
+        is_stale = age_hours > _CACHE_TTL_HOURS
+        return jsonify({
+            "status": "ok",
+            "data": radar,
+            "is_stale": is_stale,
+            "cache_age_hours": round(age_hours, 1),
+        })
     except Exception as e:
         logger.error(f"/api/institutional-radar failed: {e}")
-        return jsonify({"status": "ok", "data": {}})
+        return jsonify({"status": "ok", "data": {}, "is_stale": True, "cache_age_hours": 999})
+
+
+@app.route("/api/institutional-radar/refresh", methods=["POST"])
+def refresh_institutional_radar():
+    """
+    Force a live re-scrape of the Institutional BTST Radar.
+    Called by the 'Refresh Now' button in the UI when cache is stale.
+    Returns fresh data immediately (scrape takes ~5-10s).
+    """
+    import time as _t
+    from institutional_scraper import fetch_institutional_radar, save_institutional_radar_cache
+    try:
+        history_dir = get_history_dir()
+        # Optionally accept nifty_spot from caller
+        body = request.get_json(silent=True) or {}
+        nifty_spot = body.get("nifty_spot")
+        logger.info(f"🔄 Manual radar refresh triggered (nifty_spot={nifty_spot})")
+        data = fetch_institutional_radar(nifty_spot=nifty_spot)
+        if data and data.get("provider_calls"):
+            save_institutional_radar_cache(data, history_dir)
+            logger.info(f"✅ Manual radar refresh success: {data.get('consensus_bias')}")
+            return jsonify({"status": "ok", "data": data, "is_stale": False, "cache_age_hours": 0})
+        else:
+            logger.warning("Manual radar refresh: no provider data returned")
+            return jsonify({"status": "partial", "data": data or {}, "is_stale": True, "cache_age_hours": 999})
+    except Exception as e:
+        logger.error(f"/api/institutional-radar/refresh failed: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
