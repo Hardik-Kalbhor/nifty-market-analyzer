@@ -10,7 +10,7 @@ logger = logging.getLogger("DynamicSubagents")
 
 _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest"]
+_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
 _GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"]
 
 

@@ -24,7 +24,7 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 _GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-_GEMINI_MODELS = ["gemini-2.5-flash", "gemini-flash-latest"]
+_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
 
 def _clean_json_text(text: str) -> str:
     """Extract and clean raw JSON from model output, removing markdown fences or conversational preambles."""
