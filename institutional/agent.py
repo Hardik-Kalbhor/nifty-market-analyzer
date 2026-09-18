@@ -133,11 +133,12 @@ def _run_institutional_synthesis_agent(
         name = data.get("name", key)
         analyst = data.get("analyst", "")
         title = data.get("best_title", "")
-        text = data.get("combined_text", "")[:800].strip()
+        text = data.get("combined_text", "")[:1600].strip()
         context_lines.append(f"=== DESK: {name} ({analyst}) [key: {key}] ===")
         if title:
             context_lines.append(f"Headline: {title}")
         context_lines.append(f"Article Body:\n\"\"\"\n{text}\n\"\"\"\n")
+
 
     user_content = "\n".join(context_lines)
 

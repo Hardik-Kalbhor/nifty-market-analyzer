@@ -109,23 +109,48 @@ def _et_search_urls(query: str, max_urls: int = 5) -> list[tuple[str, str]]:
 
 
 def _fetch_article_body(url: str, timeout: int = 10) -> str:
-    """Fetch an article page and return its cleaned text body."""
+    """Fetch an article page and return its cleaned technical text body without header/nav junk."""
     try:
         resp = _SESSION.get(url, timeout=timeout)
         soup = BeautifulSoup(resp.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "header", "footer", "aside"]):
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form"]):
             tag.decompose()
-        # Try common ET article body selectors
+
+        # Try common article body container selectors
         body = (soup.find(id="articleText")
                 or soup.find(class_="artText")
                 or soup.find(class_="article_body")
                 or soup.find(class_="story-content")
+                or soup.find(class_="storycontent")
+                or soup.find(class_="mainArea")
+                or soup.find(class_="contentSec")
                 or soup.find("article"))
-        return (body.get_text(" ", strip=True)[:5000]
-                if body else soup.get_text(" ", strip=True)[:5000])
+
+        container = body if body else soup
+
+        # Extract substantive paragraphs to bypass navigation/sidebar boilerplate
+        paragraphs = [
+            p.get_text(" ", strip=True)
+            for p in container.find_all(["p", "div", "li"])
+            if len(p.get_text(" ", strip=True)) > 35
+        ]
+
+        # Prioritize paragraphs containing technical/market keywords
+        relevant = [
+            p for p in paragraphs
+            if any(term in p.lower() for term in [
+                "nifty", "support", "resistance", "target", "level", "broking",
+                "index", "points", "trend", "structure", "zone", "recovery",
+                "sl", "stop", "rebound", "correction", "hurdle", "cautious", "range"
+            ])
+        ]
+
+        selected = relevant if relevant else paragraphs
+        return " ".join(selected)[:4000]
     except Exception as e:
         logger.debug(f"Article fetch failed for {url}: {e}")
         return ""
+
 
 
 def _rss_articles(query: str, max_items: int = 6) -> list[dict]:
