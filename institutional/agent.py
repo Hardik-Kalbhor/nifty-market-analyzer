@@ -24,7 +24,7 @@ _GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 _GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 _GROQ_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
-_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+_GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite"]
 
 def _clean_json_text(text: str) -> str:
     """Extract and clean raw JSON from model output, removing markdown fences or conversational preambles."""
@@ -187,25 +187,49 @@ def _run_institutional_synthesis_agent(
             }],
             "generationConfig": {"response_mime_type": "application/json"},
         }
-        for model in _GEMINI_MODELS:
-            try:
-                url = _GEMINI_URL.format(model=model, key=gemini_key)
-                resp = requests.post(url, headers=headers, json=payload, timeout=14)
-                if resp.status_code == 200:
-                    raw_json = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-                    cleaned = _clean_json_text(raw_json)
-                    parsed = json.loads(cleaned)
-                    validated = _validate_agent_output(parsed, raw_providers)
-                    if validated:
-                        logger.info(f"🏛️ Institutional Agent Gemini ({model}): synthesized {len(validated['provider_calls'])} desks successfully")
-                        return validated
-                elif resp.status_code in (413, 429):
-                    logger.warning(f"Institutional Agent Gemini ({model}): HTTP {resp.status_code}")
-            except Exception as e:
-                logger.debug(f"Institutional Agent Gemini ({model}) error: {e}")
+
+        def _institutional_attempt(model_list: list) -> dict | None:
+            for model in model_list:
+                try:
+                    url  = _GEMINI_URL.format(model=model, key=gemini_key)
+                    resp = requests.post(url, headers=headers, json=payload, timeout=14)
+                    if resp.status_code == 200:
+                        raw_json = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+                        cleaned  = _clean_json_text(raw_json)
+                        parsed   = json.loads(cleaned)
+                        validated = _validate_agent_output(parsed, raw_providers)
+                        if validated:
+                            logger.info(f"🏛️ Institutional Agent Gemini ({model}): synthesized {len(validated['provider_calls'])} desks successfully")
+                            return validated
+                    elif resp.status_code in (413, 429):
+                        logger.warning(f"Institutional Agent Gemini ({model}): HTTP {resp.status_code}")
+                    else:
+                        logger.debug(f"Institutional Agent Gemini ({model}): HTTP {resp.status_code}")
+                except Exception as e:
+                    logger.debug(f"Institutional Agent Gemini ({model}) error: {e}")
+            return None
+
+        # First attempt with currently configured models
+        result = _institutional_attempt(_GEMINI_MODELS)
+        if result is not None:
+            return result
+
+        # All models failed — trigger self-heal and retry once
+        logger.warning("[InstitutionalAgent] All Gemini models failed — triggering self-heal")
+        try:
+            from debate.model_heal import heal_gemini_models
+            new_models = heal_gemini_models(gemini_key)
+            if new_models:
+                logger.info(f"[InstitutionalAgent] Retrying with healed models: {new_models}")
+                result = _institutional_attempt(new_models)
+                if result is not None:
+                    return result
+        except Exception as heal_err:
+            logger.error(f"[InstitutionalAgent] Self-heal failed: {heal_err}")
 
     logger.warning("Institutional Agent: All AI models offline or unavailable")
     return None
+
 
 
 

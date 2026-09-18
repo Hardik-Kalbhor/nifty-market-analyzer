@@ -44,25 +44,50 @@ def _groq_call(system_prompt: str, user_content: str, groq_key: str, timeout: in
 
 
 def _gemini_call(system_prompt: str, user_content: str, gemini_key: str, timeout: int = 12) -> dict | None:
-    """Single Gemini Flash call with model fallback. Returns parsed JSON or None."""
+    """
+    Single Gemini Flash call with model fallback.
+    If ALL configured models fail → triggers in-process self-heal, then retries once.
+    Returns parsed JSON or None.
+    """
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"role": "user", "parts": [{"text": system_prompt + "\n\n" + user_content}]}],
         "generationConfig": {"response_mime_type": "application/json"},
     }
-    for model in _GEMINI_MODELS:
+
+    def _attempt(model_list: list) -> dict | None:
+        for model in model_list:
+            try:
+                url = _GEMINI_URL.format(model=model, key=gemini_key)
+                r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+                if r.status_code == 200:
+                    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+                    return json.loads(text)
+                elif r.status_code == 429:
+                    logger.warning(f"Debate Gemini ({model}): 429 rate limit — skipping to next model")
+                else:
+                    logger.debug(f"Debate Gemini ({model}): HTTP {r.status_code}")
+            except Exception as e:
+                logger.debug(f"Debate Gemini ({model}) error: {e}")
+        return None
+
+    # First attempt with currently configured models
+    result = _attempt(_GEMINI_MODELS)
+    if result is not None:
+        return result
+
+    # All configured models failed — trigger self-heal and retry once
+    if gemini_key:
+        logger.warning("[Gemini] All configured models failed during analysis — triggering self-heal")
         try:
-            url = _GEMINI_URL.format(model=model, key=gemini_key)
-            r = requests.post(url, headers=headers, json=payload, timeout=timeout)
-            if r.status_code == 200:
-                text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-                return json.loads(text)
-            elif r.status_code == 429:
-                logger.warning(f"Debate Gemini ({model}): 429 rate limit — skipping to next model")
-            else:
-                logger.debug(f"Debate Gemini ({model}): HTTP {r.status_code}")
-        except Exception as e:
-            logger.debug(f"Debate Gemini ({model}) error: {e}")
+            from .model_heal import heal_gemini_models
+            new_models = heal_gemini_models(gemini_key)
+            if new_models:
+                logger.info(f"[Gemini] Retrying with healed model list: {new_models}")
+                return _attempt(new_models)
+        except Exception as heal_err:
+            logger.error(f"[Gemini] Self-heal failed: {heal_err}")
+
     return None
 
 
